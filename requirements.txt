@@ -1,0 +1,14 @@
+openai
+python-dotenv
+pydantic
+requests
+qdrant-client
+numpy
+scikit-learn
+sentence-transformers
+markitdown
+fastapi
+uvicorn
+torch
+torchvision
+torchaudio
