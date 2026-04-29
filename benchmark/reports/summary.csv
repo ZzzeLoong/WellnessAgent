@@ -1,0 +1,2 @@
+task_id,baseline,difficulty,hard_constraint_score,state_tracking_score,profile_tracking_score,session_tracking_score,goal_alignment_score,replanning_score,rag_grounding_score,knowledge_coverage_score,rag_invocation_score,tool_usage_score,total_score
+task_01,llm_rag,easy,1.0,0.0,0.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.7

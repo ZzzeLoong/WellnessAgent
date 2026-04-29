@@ -1,0 +1,32 @@
+{
+  "task_id": "task_06",
+  "title": "Multi-turn dislikes and cooking constraints",
+  "difficulty": "medium",
+  "category": ["state_tracking", "goal_alignment"],
+  "turns": [
+    {"role": "user", "content": "我不喜欢芹菜。"},
+    {"role": "user", "content": "工作日做饭最好不超过20分钟。"},
+    {"role": "user", "content": "请按这些情况给我一个晚餐方案。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "dislikes": ["芹菜"],
+      "cooking_constraints": ["工作日做饭最好不超过20分钟"]
+    },
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": ["芹菜"],
+    "required_terms": ["晚餐"],
+    "must_use_tools_any_of": ["profile_set"],
+    "requires_replanning": false,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.3,
+    "state_tracking": 0.5,
+    "goal_alignment": 0.2,
+    "replanning": 0.0,
+    "rag_grounding": 0.0
+  }
+}

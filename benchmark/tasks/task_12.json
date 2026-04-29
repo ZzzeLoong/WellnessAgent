@@ -1,0 +1,33 @@
+{
+  "task_id": "task_12",
+  "title": "This-time-only no onion constraint",
+  "difficulty": "medium",
+  "category": ["state_tracking"],
+  "turns": [
+    {"role": "user", "content": "我平时按均衡饮食来吃。"},
+    {"role": "user", "content": "这次晚餐别放洋葱，这只是本次临时要求。"},
+    {"role": "user", "content": "请给我一个今晚的晚餐方案。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "diet_pattern": "均衡饮食"
+    },
+    "profile_must_not_contain": {
+      "dislikes": ["洋葱"]
+    },
+    "session_required": ["洋葱"],
+    "forbidden_terms": ["洋葱"],
+    "required_terms": ["晚餐"],
+    "must_use_tools_any_of": ["session_note"],
+    "requires_replanning": false,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.2,
+    "state_tracking": 0.65,
+    "goal_alignment": 0.15,
+    "replanning": 0.0,
+    "rag_grounding": 0.0
+  }
+}

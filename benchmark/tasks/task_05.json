@@ -1,0 +1,33 @@
+{
+  "task_id": "task_05",
+  "title": "Multi-turn profile aggregation",
+  "difficulty": "medium",
+  "category": ["state_tracking", "goal_alignment"],
+  "turns": [
+    {"role": "user", "content": "我对花生过敏。"},
+    {"role": "user", "content": "我平时更偏好中式家常口味。"},
+    {"role": "user", "content": "我的目标是减脂，请给我一个明天的午餐建议。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "allergies": ["花生"],
+      "preferred_cuisines": ["中式家常口味"],
+      "goal": "减脂"
+    },
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": ["花生", "花生酱"],
+    "required_terms": ["午餐"],
+    "must_use_tools_any_of": ["profile_set"],
+    "requires_replanning": false,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.3,
+    "state_tracking": 0.45,
+    "goal_alignment": 0.25,
+    "replanning": 0.0,
+    "rag_grounding": 0.0
+  }
+}

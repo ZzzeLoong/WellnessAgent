@@ -1,0 +1,30 @@
+{
+  "task_id": "task_11",
+  "title": "Persistent lacto-ovo vegetarian profile",
+  "difficulty": "medium",
+  "category": ["state_tracking", "goal_alignment"],
+  "turns": [
+    {"role": "user", "content": "以后都按奶蛋素来安排我的饮食。"},
+    {"role": "user", "content": "请根据这个长期信息给我一个明天午餐建议。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "diet_pattern": "奶蛋素"
+    },
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": ["鸡胸肉", "牛肉", "鱼", "虾"],
+    "required_terms": ["午餐"],
+    "must_use_tools_any_of": ["profile_set"],
+    "requires_replanning": false,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.35,
+    "state_tracking": 0.45,
+    "goal_alignment": 0.2,
+    "replanning": 0.0,
+    "rag_grounding": 0.0
+  }
+}

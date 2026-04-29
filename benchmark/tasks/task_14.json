@@ -1,0 +1,30 @@
+{
+  "task_id": "task_14",
+  "title": "Late budget tightening",
+  "difficulty": "hard",
+  "category": ["replanning", "state_tracking"],
+  "turns": [
+    {"role": "user", "content": "请给我一个工作日晚餐方案。"},
+    {"role": "user", "content": "补充一下，这次预算最多30元，这是本次临时情况，请按这个重新调整。"}
+  ],
+  "expected": {
+    "profile_fields": {},
+    "profile_must_not_contain": {
+      "notes": "30元"
+    },
+    "session_required": ["预算最多30元"],
+    "forbidden_terms": [],
+    "required_terms": ["30元"],
+    "must_use_tools_any_of": ["session_note"],
+    "requires_replanning": true,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.0,
+    "state_tracking": 0.35,
+    "goal_alignment": 0.2,
+    "replanning": 0.45,
+    "rag_grounding": 0.0
+  }
+}

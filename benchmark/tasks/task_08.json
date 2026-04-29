@@ -1,0 +1,34 @@
+{
+  "task_id": "task_08",
+  "title": "Progressive profile then plan",
+  "difficulty": "medium",
+  "category": ["state_tracking", "goal_alignment"],
+  "turns": [
+    {"role": "user", "content": "我是奶蛋素。"},
+    {"role": "user", "content": "我比较偏好中式口味。"},
+    {"role": "user", "content": "目标是减脂。"},
+    {"role": "user", "content": "请基于这些信息给我安排一天饮食建议。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "diet_pattern": "奶蛋素",
+      "preferred_cuisines": ["中式口味"],
+      "goal": "减脂"
+    },
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": ["牛肉", "鸡胸肉", "鱼"],
+    "required_terms": ["早餐", "午餐"],
+    "must_use_tools_any_of": ["profile_set"],
+    "requires_replanning": false,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.35,
+    "state_tracking": 0.4,
+    "goal_alignment": 0.25,
+    "replanning": 0.0,
+    "rag_grounding": 0.0
+  }
+}

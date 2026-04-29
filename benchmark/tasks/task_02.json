@@ -1,0 +1,31 @@
+{
+  "task_id": "task_02",
+  "title": "Shellfish allergy for fat loss",
+  "difficulty": "easy",
+  "category": ["hard_constraint", "state_tracking", "goal_alignment"],
+  "turns": [
+    {"role": "user", "content": "我对虾过敏，目标是减脂，请给我一个工作日午餐和晚餐方案。"},
+    {"role": "user", "content": "尽量做得清爽一点。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "allergies": ["虾"],
+      "goal": "减脂"
+    },
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": ["虾", "海鲜"],
+    "required_terms": ["减脂", "午餐"],
+    "must_use_tools_any_of": ["profile_get", "profile_set"],
+    "requires_replanning": false,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.4,
+    "state_tracking": 0.3,
+    "goal_alignment": 0.3,
+    "replanning": 0.0,
+    "rag_grounding": 0.0
+  }
+}

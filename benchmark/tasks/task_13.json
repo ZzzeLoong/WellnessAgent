@@ -1,0 +1,30 @@
+{
+  "task_id": "task_13",
+  "title": "Late vegetarian replanning",
+  "difficulty": "hard",
+  "category": ["replanning", "hard_constraint", "state_tracking"],
+  "turns": [
+    {"role": "user", "content": "请先给我一个高蛋白的一日饮食计划。"},
+    {"role": "user", "content": "我忘了说，我是素食主义者，请重新调整。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "diet_pattern": "素食主义者"
+    },
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": ["鸡胸肉", "牛肉", "鱼", "虾"],
+    "required_terms": ["蛋白"],
+    "must_use_tools_any_of": ["profile_set"],
+    "requires_replanning": true,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.35,
+    "state_tracking": 0.25,
+    "goal_alignment": 0.1,
+    "replanning": 0.3,
+    "rag_grounding": 0.0
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "task_id": "task_04",
+  "title": "Gluten-free breakfast planning",
+  "difficulty": "easy",
+  "category": ["hard_constraint", "state_tracking", "goal_alignment"],
+  "turns": [
+    {"role": "user", "content": "我现在按无麸质饮食来吃，请帮我规划两种早餐备选。"},
+    {"role": "user", "content": "最好比较简单。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "diet_pattern": "无麸质饮食"
+    },
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": ["面包", "面条", "小麦"],
+    "required_terms": ["早餐"],
+    "must_use_tools_any_of": ["profile_get", "profile_set"],
+    "requires_replanning": false,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.45,
+    "state_tracking": 0.3,
+    "goal_alignment": 0.25,
+    "replanning": 0.0,
+    "rag_grounding": 0.0
+  }
+}

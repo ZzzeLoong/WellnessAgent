@@ -1,0 +1,30 @@
+{
+  "task_id": "task_20",
+  "title": "RAG meal template planning",
+  "difficulty": "hard",
+  "category": ["rag_grounding", "goal_alignment", "state_tracking"],
+  "turns": [
+    {"role": "user", "content": "我目标是减脂，而且工作日做饭不要太复杂。"},
+    {"role": "user", "content": "请结合知识库里的 meal template 思路，给我一个工作日的一日饮食模板。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "goal": "减脂"
+    },
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": [],
+    "required_terms": ["早餐", "午餐", "晚餐"],
+    "must_use_tools_any_of": ["profile_set", "kb_answer", "kb_search"],
+    "requires_replanning": false,
+    "requires_rag": true,
+    "required_knowledge_points": ["蛋白", "蔬菜", "主食"]
+  },
+  "weights": {
+    "hard_constraint": 0.0,
+    "state_tracking": 0.2,
+    "goal_alignment": 0.3,
+    "replanning": 0.0,
+    "rag_grounding": 0.5
+  }
+}

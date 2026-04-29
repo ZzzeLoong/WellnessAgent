@@ -1,0 +1,120 @@
+{
+  "task_id": "task_06",
+  "baseline": "llm_only",
+  "difficulty": "medium",
+  "scores": {
+    "hard_constraint_score": 0.0,
+    "state_tracking_score": 0.0,
+    "profile_tracking_score": 0.0,
+    "session_tracking_score": 1.0,
+    "goal_alignment_score": 1.0,
+    "replanning_score": 1.0,
+    "rag_grounding_score": 1.0,
+    "knowledge_coverage_score": 1.0,
+    "rag_invocation_score": 1.0,
+    "tool_usage_score": 0.0,
+    "total_score": 0.2
+  },
+  "metric_details": {
+    "hard_constraint": {
+      "forbidden_hits": [
+        "芹菜"
+      ]
+    },
+    "state_tracking": {
+      "profile": {
+        "applicable": true,
+        "profile_field_checks": {
+          "dislikes": false,
+          "cooking_constraints": false
+        },
+        "profile_absence_checks": {},
+        "passed": 0,
+        "checks": 2
+      },
+      "session": {
+        "applicable": false,
+        "session_checks": {}
+      },
+      "applicable": true
+    },
+    "profile_tracking": {
+      "applicable": true,
+      "profile_field_checks": {
+        "dislikes": false,
+        "cooking_constraints": false
+      },
+      "profile_absence_checks": {},
+      "passed": 0,
+      "checks": 2
+    },
+    "session_tracking": {
+      "applicable": false,
+      "session_checks": {}
+    },
+    "goal_alignment": {
+      "applicable": true,
+      "required_terms": [
+        "晚餐"
+      ],
+      "hits": [
+        "晚餐"
+      ]
+    },
+    "replanning": {
+      "applicable": false
+    },
+    "rag_grounding": {
+      "applicable": false,
+      "invocation": {
+        "applicable": false
+      },
+      "coverage": {
+        "applicable": false
+      }
+    },
+    "rag_invocation": {
+      "applicable": false
+    },
+    "knowledge_coverage": {
+      "applicable": false
+    },
+    "tool_usage": {
+      "applicable": true,
+      "required_any_of": [
+        "profile_set"
+      ],
+      "actually_invoked": [],
+      "matched": []
+    },
+    "total": {
+      "breakdown": [
+        {
+          "metric": "hard_constraint_score",
+          "weight": 0.3,
+          "score": 0.0,
+          "weighted": 0.0
+        },
+        {
+          "metric": "state_tracking_score",
+          "weight": 0.5,
+          "score": 0.0,
+          "weighted": 0.0
+        },
+        {
+          "metric": "goal_alignment_score",
+          "weight": 0.2,
+          "score": 1.0,
+          "weighted": 0.2
+        }
+      ],
+      "denominator": 1.0
+    }
+  },
+  "optional_judge": {
+    "enabled": false,
+    "notes": "LLM judge 未启用；第一版 benchmark 仅使用 deterministic 评分。",
+    "task_id": "task_06",
+    "baseline": "llm_only"
+  }
+}

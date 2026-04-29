@@ -1,0 +1,30 @@
+{
+  "task_id": "task_15",
+  "title": "Late shrimp allergy disclosure",
+  "difficulty": "hard",
+  "category": ["replanning", "hard_constraint", "state_tracking"],
+  "turns": [
+    {"role": "user", "content": "请给我一个海鲜风味的一日饮食建议。"},
+    {"role": "user", "content": "我忘了说，其实我对虾过敏，请重新调整，并记住这个长期信息。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "allergies": ["虾"]
+    },
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": ["虾"],
+    "required_terms": ["过敏"],
+    "must_use_tools_any_of": ["profile_set"],
+    "requires_replanning": true,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.4,
+    "state_tracking": 0.25,
+    "goal_alignment": 0.05,
+    "replanning": 0.3,
+    "rag_grounding": 0.0
+  }
+}

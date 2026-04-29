@@ -1,0 +1,27 @@
+{
+  "task_id": "task_18",
+  "title": "RAG fat loss satiety guidance",
+  "difficulty": "medium",
+  "category": ["rag_grounding", "goal_alignment"],
+  "turns": [
+    {"role": "user", "content": "请结合知识库解释减脂时怎么提高饱腹感，并给我一个简单执行建议。"}
+  ],
+  "expected": {
+    "profile_fields": {},
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": [],
+    "required_terms": ["蛋白", "蔬菜", "饱腹"],
+    "must_use_tools_any_of": ["kb_answer", "kb_search"],
+    "requires_replanning": false,
+    "requires_rag": true,
+    "required_knowledge_points": ["蛋白", "蔬菜", "饱腹"]
+  },
+  "weights": {
+    "hard_constraint": 0.0,
+    "state_tracking": 0.0,
+    "goal_alignment": 0.4,
+    "replanning": 0.0,
+    "rag_grounding": 0.6
+  }
+}

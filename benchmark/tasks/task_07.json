@@ -1,0 +1,33 @@
+{
+  "task_id": "task_07",
+  "title": "Remember and summarize long-term profile",
+  "difficulty": "medium",
+  "category": ["state_tracking"],
+  "turns": [
+    {"role": "user", "content": "我对虾过敏，而且目标是增肌。"},
+    {"role": "user", "content": "我平时早餐想简单一点。"},
+    {"role": "user", "content": "请先总结一下你现在记住了我的哪些长期信息。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "allergies": ["虾"],
+      "goal": "增肌",
+      "notes": "早餐想简单一点"
+    },
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": [],
+    "required_terms": ["虾", "增肌", "早餐"],
+    "must_use_tools_any_of": ["profile_set"],
+    "requires_replanning": false,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.0,
+    "state_tracking": 0.7,
+    "goal_alignment": 0.3,
+    "replanning": 0.0,
+    "rag_grounding": 0.0
+  }
+}

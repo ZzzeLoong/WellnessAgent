@@ -1,0 +1,33 @@
+{
+  "task_id": "task_10",
+  "title": "Temporary microwave-only travel week",
+  "difficulty": "medium",
+  "category": ["state_tracking"],
+  "turns": [
+    {"role": "user", "content": "我的目标是增肌。"},
+    {"role": "user", "content": "这周出差，住宿地只有微波炉可用，这是这周的临时情况。"},
+    {"role": "user", "content": "请给我一个今晚的晚餐建议。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "goal": "增肌"
+    },
+    "profile_must_not_contain": {
+      "cooking_constraints": ["微波炉"]
+    },
+    "session_required": ["微波炉"],
+    "forbidden_terms": [],
+    "required_terms": ["晚餐"],
+    "must_use_tools_any_of": ["session_note"],
+    "requires_replanning": false,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.0,
+    "state_tracking": 0.8,
+    "goal_alignment": 0.2,
+    "replanning": 0.0,
+    "rag_grounding": 0.0
+  }
+}

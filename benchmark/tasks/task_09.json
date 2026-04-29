@@ -1,0 +1,34 @@
+{
+  "task_id": "task_09",
+  "title": "Temporary convenience store dinner",
+  "difficulty": "medium",
+  "category": ["state_tracking"],
+  "turns": [
+    {"role": "user", "content": "我目标是减脂。"},
+    {"role": "user", "content": "今天晚上我要加班，只能在便利店买晚餐，预算30元以内。这只是今天的临时情况。"},
+    {"role": "user", "content": "请给我一个今晚可执行的选择。"}
+  ],
+  "expected": {
+    "profile_fields": {
+      "goal": "减脂"
+    },
+    "profile_must_not_contain": {
+      "notes": "便利店",
+      "cooking_constraints": ["30元", "便利店"]
+    },
+    "session_required": ["便利店", "30元以内"],
+    "forbidden_terms": [],
+    "required_terms": ["今晚"],
+    "must_use_tools_any_of": ["session_note"],
+    "requires_replanning": false,
+    "requires_rag": false,
+    "required_knowledge_points": []
+  },
+  "weights": {
+    "hard_constraint": 0.0,
+    "state_tracking": 0.8,
+    "goal_alignment": 0.2,
+    "replanning": 0.0,
+    "rag_grounding": 0.0
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "task_id": "task_17",
+  "title": "RAG muscle gain principles",
+  "difficulty": "medium",
+  "category": ["rag_grounding", "goal_alignment"],
+  "turns": [
+    {"role": "user", "content": "请结合营养知识说明增肌期饮食的核心原则，并给我一个简短建议。"}
+  ],
+  "expected": {
+    "profile_fields": {},
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": [],
+    "required_terms": ["蛋白", "训练"],
+    "must_use_tools_any_of": ["kb_answer", "kb_search"],
+    "requires_replanning": false,
+    "requires_rag": true,
+    "required_knowledge_points": ["蛋白质", "训练", "恢复"]
+  },
+  "weights": {
+    "hard_constraint": 0.0,
+    "state_tracking": 0.0,
+    "goal_alignment": 0.4,
+    "replanning": 0.0,
+    "rag_grounding": 0.6
+  }
+}

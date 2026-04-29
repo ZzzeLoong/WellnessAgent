@@ -1,0 +1,27 @@
+{
+  "task_id": "task_19",
+  "title": "RAG gluten-aware food choices",
+  "difficulty": "medium",
+  "category": ["rag_grounding", "goal_alignment"],
+  "turns": [
+    {"role": "user", "content": "请结合知识库说明做无麸质饮食时更稳妥的主食选择，并给我两个建议。"}
+  ],
+  "expected": {
+    "profile_fields": {},
+    "profile_must_not_contain": {},
+    "session_required": [],
+    "forbidden_terms": [],
+    "required_terms": ["无麸质", "米饭", "土豆"],
+    "must_use_tools_any_of": ["kb_answer", "kb_search"],
+    "requires_replanning": false,
+    "requires_rag": true,
+    "required_knowledge_points": ["米饭", "土豆", "无麸质"]
+  },
+  "weights": {
+    "hard_constraint": 0.0,
+    "state_tracking": 0.0,
+    "goal_alignment": 0.4,
+    "replanning": 0.0,
+    "rag_grounding": 0.6
+  }
+}

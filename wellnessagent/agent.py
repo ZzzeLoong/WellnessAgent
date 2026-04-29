@@ -4,11 +4,15 @@ import importlib
 from datetime import datetime
 from pathlib import Path
 import sys
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from .prompts import WELLNESS_REACT_PROMPT_TEMPLATE
 from .schemas import WellnessProfile
 from .service import WellnessAgentService
+
+
+SUPPORTED_TOOL_GROUPS = frozenset({"memory", "rag"})
+DEFAULT_TOOL_GROUPS = frozenset({"memory", "rag"})
 
 try:
     from ..agents.react_agent import ReActAgent
@@ -56,8 +60,10 @@ class WellnessPlanningAgent(ReActAgent):
         rag_namespace: Optional[str] = None,
         max_steps: int = 8,
         custom_prompt: Optional[str] = None,
+        tool_groups: Optional[Iterable[str]] = None,
     ):
         self.user_id = user_id
+        self.tool_groups = self._normalize_tool_groups(tool_groups)
         self.memory_tool = MemoryTool(
             user_id=user_id,
             memory_config=memory_config or MemoryConfig(
@@ -91,63 +97,87 @@ class WellnessPlanningAgent(ReActAgent):
             knowledgebase_dir=Path(__file__).resolve().parent / "knowledgebase" / "raw",
         )
 
+    @staticmethod
+    def _normalize_tool_groups(tool_groups: Optional[Iterable[str]]) -> frozenset[str]:
+        """Validate and normalize the requested tool groups."""
+        if tool_groups is None:
+            return DEFAULT_TOOL_GROUPS
+        normalized: set[str] = set()
+        for raw in tool_groups:
+            value = (raw or "").strip().lower()
+            if not value:
+                continue
+            if value not in SUPPORTED_TOOL_GROUPS:
+                raise ValueError(
+                    f"Unsupported tool group: {value}. "
+                    f"Allowed: {sorted(SUPPORTED_TOOL_GROUPS)}"
+                )
+            normalized.add(value)
+        return frozenset(normalized)
+
+    def _has_group(self, group: str) -> bool:
+        """Return True when a tool group is enabled for this agent instance."""
+        return group in self.tool_groups
+
     def _register_tool_functions(self, tool_registry: ToolRegistry) -> None:
         """Register string-based wrappers compatible with the current ReAct loop."""
-        tool_registry.register_function(
-            "profile_get",
-            "读取当前用户画像。输入留空即可。",
-            self._profile_get,
-        )
-        tool_registry.register_function(
-            "profile_set",
-            "更新当前用户画像。输入格式：field=value;field=value。若要清空字段，可写 field=none 或 field=无",
-            self._profile_set,
-        )
-        tool_registry.register_function(
-            "session_note",
-            "写入当前会话的短期上下文。输入为一段应暂时记住的文本。",
-            self._session_note,
-        )
-        tool_registry.register_function(
-            "session_recall",
-            "检索当前会话短期上下文。输入为查询内容。",
-            self._session_recall,
-        )
-        tool_registry.register_function(
-            "session_digest",
-            "查看当前会话 working memory 摘要。输入留空即可。",
-            self._session_digest,
-        )
-        tool_registry.register_function(
-            "memory_search",
-            "检索长期用户记忆。输入为查询内容。",
-            self._memory_search,
-        )
-        tool_registry.register_function(
-            "memory_remember",
-            "写入非结构化长期规则或长期反馈。输入为要长期记住的文本。",
-            self._memory_remember,
-        )
-        tool_registry.register_function(
-            "memory_digest",
-            "查看长期记忆高层摘要。输入留空即可。",
-            self._memory_digest,
-        )
-        tool_registry.register_function(
-            "kb_search",
-            "检索营养知识库片段。输入为查询内容。",
-            self._kb_search,
-        )
-        tool_registry.register_function(
-            "kb_answer",
-            "基于营养知识库生成回答。输入为问题。",
-            self._kb_answer,
-        )
-        tool_registry.register_function(
-            "kb_status",
-            "查看当前知识库 namespace 状态。输入留空即可。",
-            self._kb_status,
-        )
+        if self._has_group("memory"):
+            tool_registry.register_function(
+                "profile_get",
+                "读取当前用户画像。输入留空即可。",
+                self._profile_get,
+            )
+            tool_registry.register_function(
+                "profile_set",
+                "更新当前用户画像。输入格式：field=value;field=value。若要清空字段，可写 field=none 或 field=无",
+                self._profile_set,
+            )
+            tool_registry.register_function(
+                "session_note",
+                "写入当前会话的短期上下文。输入为一段应暂时记住的文本。",
+                self._session_note,
+            )
+            tool_registry.register_function(
+                "session_recall",
+                "检索当前会话短期上下文。输入为查询内容。",
+                self._session_recall,
+            )
+            tool_registry.register_function(
+                "session_digest",
+                "查看当前会话 working memory 摘要。输入留空即可。",
+                self._session_digest,
+            )
+            tool_registry.register_function(
+                "memory_search",
+                "检索长期用户记忆。输入为查询内容。",
+                self._memory_search,
+            )
+            tool_registry.register_function(
+                "memory_remember",
+                "写入非结构化长期规则或长期反馈。输入为要长期记住的文本。",
+                self._memory_remember,
+            )
+            tool_registry.register_function(
+                "memory_digest",
+                "查看长期记忆高层摘要。输入留空即可。",
+                self._memory_digest,
+            )
+        if self._has_group("rag"):
+            tool_registry.register_function(
+                "kb_search",
+                "检索营养知识库片段。输入为查询内容。",
+                self._kb_search,
+            )
+            tool_registry.register_function(
+                "kb_answer",
+                "基于营养知识库生成回答。输入为问题。",
+                self._kb_answer,
+            )
+            tool_registry.register_function(
+                "kb_status",
+                "查看当前知识库 namespace 状态。输入留空即可。",
+                self._kb_status,
+            )
 
     def _profile_get(self, _input_text: str) -> str:
         """Read the current structured profile."""
@@ -222,20 +252,42 @@ class WellnessPlanningAgent(ReActAgent):
         return self.service.seed_default_knowledge()
 
     def build_additional_context(self, input_text: str) -> str:
-        """Inject profile, recent dialogue, and active working-memory summaries."""
-        sections = [
-            "### 当前用户画像摘要",
-            self.service.get_current_profile_summary(),
-            "",
-            "### 补充长期记忆摘要",
-            self.service.get_distilled_memory_summary(limit=4),
-            "",
-            "### 最近对话窗口",
-            self._format_recent_dialogue_window(),
-            "",
-            "### 当前有效短期上下文",
-            self.service.get_working_context_summary(limit=6, max_chars=900),
-        ]
+        """Inject profile, recent dialogue, and active working-memory summaries.
+
+        For memory-disabled baselines we still expose the rolling dialogue window
+        (it comes from the base ReActAgent message history, not from the memory
+        system), so the agent can always reason about prior turns.
+        """
+        sections: list[str] = []
+
+        if self._has_group("memory"):
+            sections.extend(
+                [
+                    "### 当前用户画像摘要",
+                    self.service.get_current_profile_summary(),
+                    "",
+                    "### 补充长期记忆摘要",
+                    self.service.get_distilled_memory_summary(limit=4),
+                    "",
+                ]
+            )
+
+        sections.extend(
+            [
+                "### 最近对话窗口",
+                self._format_recent_dialogue_window(),
+            ]
+        )
+
+        if self._has_group("memory"):
+            sections.extend(
+                [
+                    "",
+                    "### 当前有效短期上下文",
+                    self.service.get_working_context_summary(limit=6, max_chars=900),
+                ]
+            )
+
         return "\n".join(sections)
 
     def chat(self, user_input: str, **kwargs) -> str:
