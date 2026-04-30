@@ -9,15 +9,17 @@
     "session_tracking_score": 1.0,
     "goal_alignment_score": 1.0,
     "replanning_score": 1.0,
-    "rag_grounding_score": 0.5,
-    "knowledge_coverage_score": 1.0,
+    "rag_grounding_score": 0.3333333333333333,
+    "knowledge_coverage_score": 0.6666666666666666,
     "rag_invocation_score": 0.0,
     "tool_usage_score": 0.0,
-    "total_score": 0.8
+    "total_score": 0.6333333333333333
   },
   "metric_details": {
     "hard_constraint": {
-      "forbidden_hits": []
+      "forbidden_hits": [],
+      "per_term": [],
+      "judge_mode": "hybrid"
     },
     "state_tracking": {
       "profile": {
@@ -74,8 +76,7 @@
         "applicable": true,
         "knowledge_point_hits": [
           "蛋白",
-          "蔬菜",
-          "主食"
+          "蔬菜"
         ],
         "knowledge_points_total": [
           "蛋白",
@@ -92,8 +93,7 @@
       "applicable": true,
       "knowledge_point_hits": [
         "蛋白",
-        "蔬菜",
-        "主食"
+        "蔬菜"
       ],
       "knowledge_points_total": [
         "蛋白",
@@ -128,8 +128,8 @@
         {
           "metric": "knowledge_coverage_score",
           "weight": 0.5,
-          "score": 1.0,
-          "weighted": 0.5
+          "score": 0.6666666666666666,
+          "weighted": 0.3333333333333333
         }
       ],
       "denominator": 1.0

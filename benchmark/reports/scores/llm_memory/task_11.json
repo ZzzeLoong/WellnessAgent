@@ -3,7 +3,7 @@
   "baseline": "llm_memory",
   "difficulty": "medium",
   "scores": {
-    "hard_constraint_score": 0.0,
+    "hard_constraint_score": 1.0,
     "state_tracking_score": 1.0,
     "profile_tracking_score": 1.0,
     "session_tracking_score": 1.0,
@@ -13,13 +13,42 @@
     "knowledge_coverage_score": 1.0,
     "rag_invocation_score": 1.0,
     "tool_usage_score": 1.0,
-    "total_score": 0.65
+    "total_score": 1.0
   },
   "metric_details": {
     "hard_constraint": {
-      "forbidden_hits": [
-        "鱼"
-      ]
+      "forbidden_hits": [],
+      "per_term": [
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "鸡胸肉",
+          "judge_used": false,
+          "final_violation": false
+        },
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "牛肉",
+          "judge_used": false,
+          "final_violation": false
+        },
+        {
+          "violation": false,
+          "reason": "heuristic_safe",
+          "term": "鱼",
+          "judge_used": false,
+          "final_violation": false
+        },
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "虾",
+          "judge_used": false,
+          "final_violation": false
+        }
+      ],
+      "judge_mode": "hybrid"
     },
     "state_tracking": {
       "profile": {
@@ -95,8 +124,8 @@
         {
           "metric": "hard_constraint_score",
           "weight": 0.35,
-          "score": 0.0,
-          "weighted": 0.0
+          "score": 1.0,
+          "weighted": 0.35
         },
         {
           "metric": "state_tracking_score",

@@ -17,7 +17,22 @@
   },
   "metric_details": {
     "hard_constraint": {
-      "forbidden_hits": []
+      "forbidden_hits": [],
+      "per_term": [
+        {
+          "violation": true,
+          "reason": "heuristic_violation",
+          "term": "芹菜",
+          "judge_used": true,
+          "final_violation": false,
+          "judge": {
+            "violation": false,
+            "reason": "回答中明确标注'避开芹菜'且提供的菜谱未包含芹菜，仅作为反面示例提及",
+            "judge_status": "ok"
+          }
+        }
+      ],
+      "judge_mode": "hybrid"
     },
     "state_tracking": {
       "profile": {

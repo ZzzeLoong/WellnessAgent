@@ -17,7 +17,9 @@
   },
   "metric_details": {
     "hard_constraint": {
-      "forbidden_hits": []
+      "forbidden_hits": [],
+      "per_term": [],
+      "judge_mode": "hybrid"
     },
     "state_tracking": {
       "profile": {
@@ -69,6 +71,7 @@
       "invocation": {
         "applicable": true,
         "kb_tools_used": [
+          "kb_answer",
           "kb_search"
         ]
       },
@@ -89,6 +92,7 @@
     "rag_invocation": {
       "applicable": true,
       "kb_tools_used": [
+        "kb_answer",
         "kb_search"
       ]
     },
@@ -113,10 +117,13 @@
         "kb_search"
       ],
       "actually_invoked": [
+        "kb_answer",
         "kb_search",
+        "profile_get",
         "profile_set"
       ],
       "matched": [
+        "kb_answer",
         "kb_search",
         "profile_set"
       ]

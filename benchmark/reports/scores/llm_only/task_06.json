@@ -3,7 +3,7 @@
   "baseline": "llm_only",
   "difficulty": "medium",
   "scores": {
-    "hard_constraint_score": 0.0,
+    "hard_constraint_score": 1.0,
     "state_tracking_score": 0.0,
     "profile_tracking_score": 0.0,
     "session_tracking_score": 1.0,
@@ -13,13 +13,26 @@
     "knowledge_coverage_score": 1.0,
     "rag_invocation_score": 1.0,
     "tool_usage_score": 0.0,
-    "total_score": 0.2
+    "total_score": 0.5
   },
   "metric_details": {
     "hard_constraint": {
-      "forbidden_hits": [
-        "芹菜"
-      ]
+      "forbidden_hits": [],
+      "per_term": [
+        {
+          "violation": true,
+          "reason": "heuristic_violation",
+          "term": "芹菜",
+          "judge_used": true,
+          "final_violation": false,
+          "judge": {
+            "violation": false,
+            "reason": "回答全程未将芹菜作为可食用食材推荐，且明确标注'全程无芹菜'，所有食材清单、步骤、替换建议均未涉及芹菜。",
+            "judge_status": "ok"
+          }
+        }
+      ],
+      "judge_mode": "hybrid"
     },
     "state_tracking": {
       "profile": {
@@ -92,8 +105,8 @@
         {
           "metric": "hard_constraint_score",
           "weight": 0.3,
-          "score": 0.0,
-          "weighted": 0.0
+          "score": 1.0,
+          "weighted": 0.3
         },
         {
           "metric": "state_tracking_score",

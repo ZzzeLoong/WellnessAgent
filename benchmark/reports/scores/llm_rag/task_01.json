@@ -17,7 +17,24 @@
   },
   "metric_details": {
     "hard_constraint": {
-      "forbidden_hits": []
+      "forbidden_hits": [],
+      "per_term": [
+        {
+          "violation": false,
+          "reason": "heuristic_safe",
+          "term": "花生",
+          "judge_used": false,
+          "final_violation": false
+        },
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "花生酱",
+          "judge_used": false,
+          "final_violation": false
+        }
+      ],
+      "judge_mode": "hybrid"
     },
     "state_tracking": {
       "profile": {
@@ -88,10 +105,11 @@
       "actually_invoked": [
         "kb_answer",
         "profile_get",
-        "session_note"
+        "profile_set"
       ],
       "matched": [
-        "profile_get"
+        "profile_get",
+        "profile_set"
       ]
     },
     "total": {

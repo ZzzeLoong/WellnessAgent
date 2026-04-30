@@ -17,7 +17,9 @@
   },
   "metric_details": {
     "hard_constraint": {
-      "forbidden_hits": []
+      "forbidden_hits": [],
+      "per_term": [],
+      "judge_mode": "hybrid"
     },
     "state_tracking": {
       "profile": {
@@ -98,8 +100,9 @@
       ],
       "actually_invoked": [
         "kb_answer",
-        "kb_search",
         "profile_get",
+        "profile_set",
+        "session_digest",
         "session_note"
       ],
       "matched": [

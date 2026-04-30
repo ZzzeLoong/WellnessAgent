@@ -6,6 +6,7 @@ import argparse
 from typing import Sequence
 
 from .baselines import ALL_BASELINES
+from .evaluators.hard_judge import VALID_MODES as HARD_JUDGE_MODES, resolve_mode
 from .runner import BenchmarkRunner
 from .subsets import select_tasks_by_limit
 from .task_loader import load_all_tasks, load_task_by_id
@@ -49,6 +50,32 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="完全静默运行，仅输出错误。",
     )
+    parser.add_argument(
+        "--hard-judge",
+        choices=list(HARD_JUDGE_MODES),
+        default=None,
+        help=(
+            "硬约束检测模式：heuristic=纯关键词；hybrid=heuristic 触发后再用 LLM 复核；"
+            "llm=任何子串命中都让 LLM 判定。默认读取 BENCH_HARD_JUDGE 环境变量，再回退到 hybrid。"
+        ),
+    )
+    clean_group = parser.add_mutually_exclusive_group()
+    clean_group.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "保留 reports/ 下的旧文件（含其他 task / 其他 baseline），"
+            "本轮只覆盖正在跑的 (baseline, task) 对，与 v1 behaviour 一致。"
+        ),
+    )
+    clean_group.add_argument(
+        "--clean-all",
+        action="store_true",
+        help=(
+            "运行前清空整个 reports/ 目录，包括没有被本轮覆盖的其他 baseline 旧报告。"
+            "适合完全重跑、避免任何历史污染。"
+        ),
+    )
     return parser
 
 
@@ -91,9 +118,18 @@ def main() -> None:
         print("[benchmark] 未匹配到任何任务，已退出。")
         return
 
+    hard_judge_mode = resolve_mode(args.hard_judge)
+    if args.clean_all:
+        clean_mode = "all"
+    elif args.append:
+        clean_mode = "append"
+    else:
+        clean_mode = "scoped"
     runner = BenchmarkRunner(
         verbose=not args.quiet,
         show_progress=(not args.quiet) and (not args.no_progress),
+        hard_judge_mode=hard_judge_mode,
+        clean_mode=clean_mode,
     )
     if not args.quiet:
         print(

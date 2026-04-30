@@ -21,10 +21,11 @@ Diagnostic metrics emitted but not weighted:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from ..schemas import BenchmarkRunResult, BenchmarkScoreResult, BenchmarkTask, MetricScores
 from .hard_constraints import score_hard_constraints
+from .hard_judge import HardConstraintJudge
 from .rag_grounding import (
     score_knowledge_coverage,
     score_rag_grounding,
@@ -91,9 +92,18 @@ def _weighted_average(task: BenchmarkTask, metrics: dict[str, float]) -> tuple[f
     return total, {"breakdown": breakdown, "denominator": denominator}
 
 
-def score_run(task: BenchmarkTask, run: BenchmarkRunResult) -> BenchmarkScoreResult:
-    """Compute deterministic benchmark scores for one run."""
-    hard_score, hard_details = score_hard_constraints(task, run)
+def score_run(
+    task: BenchmarkTask,
+    run: BenchmarkRunResult,
+    hard_judge: Optional[HardConstraintJudge] = None,
+) -> BenchmarkScoreResult:
+    """Compute deterministic benchmark scores for one run.
+
+    A `HardConstraintJudge` may be threaded in to upgrade the hard-constraint
+    detector beyond pure substring matching. When `None`, scoring stays
+    100% deterministic.
+    """
+    hard_score, hard_details = score_hard_constraints(task, run, judge=hard_judge)
     state_score, state_details = score_state_tracking(task, run)
     profile_score, profile_details = score_profile_tracking(task, run)
     session_score, session_details = score_session_tracking(task, run)

@@ -17,7 +17,38 @@
   },
   "metric_details": {
     "hard_constraint": {
-      "forbidden_hits": []
+      "forbidden_hits": [],
+      "per_term": [
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "鸡胸肉",
+          "judge_used": false,
+          "final_violation": false
+        },
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "牛肉",
+          "judge_used": false,
+          "final_violation": false
+        },
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "鱼",
+          "judge_used": false,
+          "final_violation": false
+        },
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "虾",
+          "judge_used": false,
+          "final_violation": false
+        }
+      ],
+      "judge_mode": "hybrid"
     },
     "state_tracking": {
       "profile": {
@@ -81,8 +112,6 @@
         "profile_set"
       ],
       "actually_invoked": [
-        "kb_answer",
-        "memory_remember",
         "profile_get",
         "profile_set"
       ],

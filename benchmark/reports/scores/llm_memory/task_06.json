@@ -7,17 +7,27 @@
     "state_tracking_score": 0.5,
     "profile_tracking_score": 0.5,
     "session_tracking_score": 1.0,
-    "goal_alignment_score": 0.0,
+    "goal_alignment_score": 1.0,
     "replanning_score": 1.0,
     "rag_grounding_score": 1.0,
     "knowledge_coverage_score": 1.0,
     "rag_invocation_score": 1.0,
     "tool_usage_score": 1.0,
-    "total_score": 0.55
+    "total_score": 0.75
   },
   "metric_details": {
     "hard_constraint": {
-      "forbidden_hits": []
+      "forbidden_hits": [],
+      "per_term": [
+        {
+          "violation": false,
+          "reason": "heuristic_safe",
+          "term": "芹菜",
+          "judge_used": false,
+          "final_violation": false
+        }
+      ],
+      "judge_mode": "hybrid"
     },
     "state_tracking": {
       "profile": {
@@ -55,7 +65,9 @@
       "required_terms": [
         "晚餐"
       ],
-      "hits": []
+      "hits": [
+        "晚餐"
+      ]
     },
     "replanning": {
       "applicable": false
@@ -105,8 +117,8 @@
         {
           "metric": "goal_alignment_score",
           "weight": 0.2,
-          "score": 0.0,
-          "weighted": 0.0
+          "score": 1.0,
+          "weighted": 0.2
         }
       ],
       "denominator": 1.0

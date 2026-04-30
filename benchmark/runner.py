@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,10 @@ from .baselines import (
 )
 from .baselines.base import BaselineAdapter
 from .evaluators.aggregate import score_run
+from .evaluators.hard_judge import (
+    DEFAULT_MODE as DEFAULT_JUDGE_MODE,
+    HardConstraintJudge,
+)
 from .evaluators.llm_judge import judge_run
 from .schemas import (
     BenchmarkRunResult,
@@ -68,11 +73,20 @@ class BenchmarkRunner:
         reports_dir: Path | None = None,
         verbose: bool = True,
         show_progress: bool = True,
+        hard_judge_mode: str = DEFAULT_JUDGE_MODE,
+        clean_mode: str = "scoped",
     ):
         self.base_dir = Path(__file__).resolve().parent
         self.reports_dir = reports_dir or self.base_dir / "reports"
         self.verbose = verbose
         self.show_progress = show_progress
+        self.hard_judge_mode = hard_judge_mode
+        if clean_mode not in {"scoped", "all", "append"}:
+            raise ValueError(
+                f"Unsupported clean_mode: {clean_mode!r}. "
+                "Allowed: 'scoped', 'all', 'append'."
+            )
+        self.clean_mode = clean_mode
 
     def build_report_paths(self) -> ReportPaths:
         """Prepare report output directories."""
@@ -91,6 +105,62 @@ class BenchmarkRunner:
             leaderboard_md=self.reports_dir / "leaderboard.md",
             baselines_dir=baselines_dir,
         )
+
+    def _prepare_reports_dir(self, paths: ReportPaths, baselines: list[str]) -> None:
+        """Clear stale report files based on `clean_mode`.
+
+        - `append`: leave everything in place (legacy behaviour).
+        - `scoped` (default): wipe per-baseline subdirs only for baselines being
+          rerun; leave other baselines untouched. Also wipe top-level summary
+          files because they are always regenerated from the current run.
+        - `all`: wipe the entire `reports/` tree (preserving the dir itself).
+        """
+        if self.clean_mode == "append":
+            return
+
+        if self.clean_mode == "all":
+            for entry in self.reports_dir.iterdir():
+                if entry.name == ".gitkeep":
+                    continue
+                if entry.is_dir():
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    try:
+                        entry.unlink()
+                    except OSError:
+                        pass
+            paths.raw_runs_dir.mkdir(parents=True, exist_ok=True)
+            paths.scores_dir.mkdir(parents=True, exist_ok=True)
+            paths.baselines_dir.mkdir(parents=True, exist_ok=True)
+            if self.verbose:
+                print("[benchmark] clean_mode=all → 已清空 reports/ 全部内容")
+            return
+
+        # scoped
+        wiped: list[str] = []
+        for baseline_name in baselines:
+            for parent in (paths.raw_runs_dir, paths.scores_dir):
+                target = parent / baseline_name
+                if target.exists():
+                    shutil.rmtree(target, ignore_errors=True)
+            details_md = paths.baselines_dir / f"{baseline_name}.md"
+            if details_md.exists():
+                try:
+                    details_md.unlink()
+                except OSError:
+                    pass
+            wiped.append(baseline_name)
+        for top_level in (paths.summary_csv, paths.summary_md, paths.leaderboard_md):
+            if top_level.exists():
+                try:
+                    top_level.unlink()
+                except OSError:
+                    pass
+        if self.verbose and wiped:
+            print(
+                f"[benchmark] clean_mode=scoped → 已清空 baselines={', '.join(wiped)} "
+                "的旧 raw_runs / scores / details，并重写 summary.csv|md / leaderboard.md"
+            )
 
     def create_baseline(self, baseline_name: str, user_id: str) -> BaselineAdapter:
         """Instantiate a supported baseline."""
@@ -114,9 +184,15 @@ class BenchmarkRunner:
         """Run selected tasks against selected baselines."""
         load_repo_env()
         paths = self.build_report_paths()
+        self._prepare_reports_dir(paths, baselines)
         tasks_list = list(tasks)
         score_results: list[BenchmarkScoreResult] = []
         run_results: list[BenchmarkRunResult] = []
+
+        # Build a single judge and reuse its cache across (task,baseline) pairs.
+        hard_judge = HardConstraintJudge(mode=self.hard_judge_mode)
+        if self.verbose:
+            print(f"[benchmark] hard_constraint judge mode = {hard_judge.mode}")
 
         total_units = max(1, len(baselines) * len(tasks_list))
         unit_index = 0
@@ -142,7 +218,7 @@ class BenchmarkRunner:
                     run_result = baseline.run_task(task)
                     run_result.finished_at = datetime.utcnow().isoformat()
 
-                    score_result = score_run(task, run_result)
+                    score_result = score_run(task, run_result, hard_judge=hard_judge)
                     score_result.optional_judge = judge_run(task, run_result)
                     status = "ok"
                 except Exception as exc:

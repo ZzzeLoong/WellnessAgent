@@ -39,6 +39,34 @@ python -m benchmark.cli --baseline llm_only --baseline llm_memory --limit 10
 
 CLI 默认会跑 `llm_only / llm_memory / llm_rag / full_agent` 四组 baseline。可以用 `--baseline ...` 多次传入子集，用 `--no-progress` 关闭进度日志，用 `--quiet` 完全静默。
 
+## 硬约束误判与 LLM judge
+
+`hard_constraint_score` 默认采用「分层 hybrid」策略：
+
+1. **子串检测**：forbidden_term 不出现在最终回答里 → 直接通过。
+2. **关键词 heuristic**：term 命中后检查前后 16 字符内是否有 `避免/严禁/切忌/请勿/远离/拒绝/⚠️/avoid/exclude` 等警告词；命中视为安全。
+3. **小型 LLM judge**：只有当 heuristic 仍然把 term 判为「疑似踩词」时，才把回答和 term 丢给一个轻量 LLM 复核，避免「严禁使用花生酱」「花生酱含有花生过敏成分」这种警告语境被错杀。
+
+模式可通过 CLI 或环境变量切换：
+
+```powershell
+# 默认 hybrid（推荐）
+python -m benchmark.cli --limit 10
+
+# 完全确定性，不调用任何 LLM judge
+python -m benchmark.cli --limit 10 --hard-judge heuristic
+
+# 任何 term 命中都让 LLM 复核（更鲁棒，token 多）
+python -m benchmark.cli --limit 10 --hard-judge llm
+```
+
+Judge 使用的 LLM 优先级：
+- `BENCH_JUDGE_MODEL_ID` / `BENCH_JUDGE_API_KEY` / `BENCH_JUDGE_BASE_URL`（独立覆盖项）
+- 回退到 `DISTILL_MODEL_ID` / `DISTILL_API_KEY` / `DISTILL_BASE_URL`（与记忆提纯共享小模型）
+- 再回退到默认 `HelloAgentsLLM()`
+
+Judge 的诊断信息会出现在 `scores/<baseline>/<task>.json` 的 `metric_details.hard_constraint.per_term[*]` 中，包含 `reason`（`term_not_in_answer` / `heuristic_safe` / `heuristic_violation`）以及 `judge_used` / `judge.judge_status`，方便事后回看为何被判通过 / 扣分。
+
 ## 子集如何选
 
 - `--limit 1` → `task_01`，最快烟雾测试
@@ -81,6 +109,29 @@ reports/
 ```
 
 `baselines/<baseline>.md` 会列出每个任务的命中点、踩到的禁词、re-plan 时是否换工具、知识点覆盖等具体扣分依据，方便回归调试。
+
+### 报告覆盖策略
+
+为了避免「上一轮跑了 20 个 task、这一轮只跑 10 个，剩下 10 个旧 JSON 还在 `raw_runs/` 里」这种污染，runner 默认在每次运行开始时按 baseline 维度清理旧文件：
+
+| 模式 | CLI 开关 | 行为 |
+|---|---|---|
+| `scoped`（默认） | 无 | 只清理本轮即将跑的 baseline 的 `raw_runs/<bl>/`、`scores/<bl>/`、`baselines/<bl>.md`；其他 baseline 的旧报告**不动**；同时重写 `summary.csv` / `summary.md` / `leaderboard.md`。 |
+| `append` | `--append` | 不做任何清理，与 v1 行为一致；适合在已跑过的报告基础上**补**几个 task 的增量运行。 |
+| `all` | `--clean-all` | 清空整个 `reports/` 目录后再写；最干净，适合完全重新评测。 |
+
+`--append` 与 `--clean-all` 互斥。
+
+```powershell
+# 默认：scoped，正常使用即可
+python -m benchmark.cli --limit 10
+
+# 增量补几个 task，不动其他报告
+python -m benchmark.cli --task task_15 --append
+
+# 大改之后想完全重置
+python -m benchmark.cli --all --clean-all
+```
 
 ## 调试输出
 
