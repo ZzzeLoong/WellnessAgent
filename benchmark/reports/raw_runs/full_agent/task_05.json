@@ -1,0 +1,412 @@
+{
+  "task_id": "task_05",
+  "baseline": "full_agent",
+  "user_id": "bench_full_agent_task_05_20260430065113",
+  "started_at": "2026-04-30T06:51:15.365451",
+  "finished_at": "2026-04-30T06:54:18.078983",
+  "turn_results": [
+    {
+      "turn_index": 1,
+      "user_message": "我对花生过敏。",
+      "answer": "好的，我已经将您的花生过敏信息记录下来了。🥜❌\n\n今后为您提供任何饮食建议时，我都会严格避开花生及含花生的食品，包括：\n- 花生本身及花生制品（花生酱、花生油等）\n- 可能含有花生的混合食品（某些零食、糕点、调味料等）\n- 存在交叉污染风险的食品\n\n**安全提示**：外出就餐或购买包装食品时，请务必仔细查看配料表和过敏原标识，必要时向餐厅工作人员说明您的过敏情况。\n\n请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如：\n- 饮食模式（如素食、低碳等）\n- 健康目标（如减脂、增肌、控糖等）\n- 不喜欢的食物\n- 烹饪条件限制\n\n我可以根据您的具体情况，为您提供更个性化的饮食建议。",
+      "terminated_reason": "finished",
+      "steps": [
+        {
+          "step_index": 1,
+          "thought": "用户告知对花生过敏，这是重要的长期健康约束信息，需要写入用户画像。根据画像维护规则，用户首次明确说出过敏信息时，应先读取画像，再使用 profile_set 写入或合并更新。虽然系统摘要显示画像为空，但我仍需先调用 profile_get 确认当前状态。",
+          "action_text": "profile_get[]",
+          "tool_name": "profile_get",
+          "tool_input": "",
+          "observation": "当前用户画像为空。",
+          "raw_response": "{\n  \"thought\": \"用户告知对花生过敏，这是重要的长期健康约束信息，需要写入用户画像。根据画像维护规则，用户首次明确说出过敏信息时，应先读取画像，再使用 profile_set 写入或合并更新。虽然系统摘要显示画像为空，但我仍需先调用 profile_get 确认当前状态。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_get\",\n    \"input\": \"\",\n    \"answer\": \"\"\n  }\n}",
+          "action_debug": "raw_action_source={\n  \"thought\": \"用户告知对花生过敏，这是重要的长期健康约束信息，需要写入用户画像。根据画像维护规则，用户首次明确说出过敏信息时，应先读取画像，再使用 profile_set 写入或合并更新。虽然系统摘要显示画像为空，但我仍需先调用 profile_get 确认当前状态。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_get\",\n    \"input\": \"\",\n    \"answer\": \"\"\n  }\n} | extracted_action=profile_get[]"
+        },
+        {
+          "step_index": 2,
+          "thought": "用户告知对花生过敏，这是重要的长期健康约束信息。已确认当前画像为空，现在需要使用 profile_set 将过敏信息写入 allergies 字段。写入后需要给用户确认回复，并询问是否需要进一步的饮食建议。",
+          "action_text": "profile_set[allergies=花生]",
+          "tool_name": "profile_set",
+          "tool_input": "allergies=花生",
+          "observation": "✅ 当前用户画像已更新\n更新字段: allergies\nallergies: 花生\ndiet_pattern: none\ngoal: none\ndislikes: none\nmedical_notes: none\npreferred_cuisines: none\ncooking_constraints: none\nnotes: none",
+          "raw_response": "{\n  \"thought\": \"用户告知对花生过敏，这是重要的长期健康约束信息。已确认当前画像为空，现在需要使用 profile_set 将过敏信息写入 allergies 字段。写入后需要给用户确认回复，并询问是否需要进一步的饮食建议。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_set\",\n    \"input\": \"allergies=花生\",\n    \"answer\": \"\"\n  }\n}",
+          "action_debug": "raw_action_source={\n  \"thought\": \"用户告知对花生过敏，这是重要的长期健康约束信息。已确认当前画像为空，现在需要使用 profile_set 将过敏信息写入 allergies 字段。写入后需要给用户确认回复，并询问是否需要进一步的饮食建议。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_set\",\n    \"input\": \"allergies=花生\",\n    \"answer\": \"\"\n  }\n} | extracted_action=profile_set[allergies=花生]"
+        },
+        {
+          "step_index": 3,
+          "thought": "用户画像已成功更新，花生过敏信息已记录到 allergies 字段。现在需要给用户确认回复，告知已记录该重要健康约束，并询问是否需要进一步的饮食建议。同时提醒用户后续所有推荐都会避开花生及相关制品。",
+          "action_text": "Finish[好的，我已经将您的花生过敏信息记录下来了。🥜❌\n\n今后为您提供任何饮食建议时，我都会严格避开花生及含花生的食品，包括：\n- 花生本身及花生制品（花生酱、花生油等）\n- 可能含有花生的混合食品（某些零食、糕点、调味料等）\n- 存在交叉污染风险的食品\n\n**安全提示**：外出就餐或购买包装食品时，请务必仔细查看配料表和过敏原标识，必要时向餐厅工作人员说明您的过敏情况。\n\n请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如：\n- 饮食模式（如素食、低碳等）\n- 健康目标（如减脂、增肌、控糖等）\n- 不喜欢的食物\n- 烹饪条件限制\n\n我可以根据您的具体情况，为您提供更个性化的饮食建议。]",
+          "tool_name": null,
+          "tool_input": null,
+          "observation": null,
+          "raw_response": "{\n  \"thought\": \"用户画像已成功更新，花生过敏信息已记录到 allergies 字段。现在需要给用户确认回复，告知已记录该重要健康约束，并询问是否需要进一步的饮食建议。同时提醒用户后续所有推荐都会避开花生及相关制品。\",\n  \"action\": {\n    \"type\": \"finish\",\n    \"name\": \"\",\n    \"input\": \"\",\n    \"answer\": \"好的，我已经将您的花生过敏信息记录下来了。🥜❌\\n\\n今后为您提供任何饮食建议时，我都会严格避开花生及含花生的食品，包括：\\n- 花生本身及花生制品（花生酱、花生油等）\\n- 可能含有花生的混合食品（某些零食、糕点、调味料等）\\n- 存在交叉污染风险的食品\\n\\n**安全提示**：外出就餐或购买包装食品时，请务必仔细查看配料表和过敏原标识，必要时向餐厅工作人员说明您的过敏情况。\\n\\n请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如：\\n- 饮食模式（如素食、低碳等）\\n- 健康目标（如减脂、增肌、控糖等）\\n- 不喜欢的食物\\n- 烹饪条件限制\\n\\n我可以根据您的具体情况，为您提供更个性化的饮食建议。\"\n  }\n}",
+          "action_debug": "raw_action_source={\n  \"thought\": \"用户画像已成功更新，花生过敏信息已记录到 allergies 字段。现在需要给用户确认回复，告知已记录该重要健康约束，并询问是否需要进一步的饮食建议。同时提醒用户后续所有推荐都会避开花生及相关制品。\",\n  \"action\": {\n    \"type\": \"finish\",\n    \"name\": \"\",\n    \"input\": \"\",\n    \"answer\": \"好的，我已经将您的花生过敏信息记录下来了。🥜❌\\n\\n今后为您提供任何饮食建议时，我都会严格避开花生及含花生的食品，包括：\\n- 花生本身及花生制品（花生酱、花生油等）\\n- 可能含有花生的混合食品（某些零食、糕点、调味料等）\\n- 存在交叉污染风险的食品\\n\\n**安全提示**：外出就餐或购买包装食品时，请务必仔细查看配料表和过敏原标识，必要时向餐厅工作人员说明您的过敏情况。\\n\\n请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如：\\n- 饮食模式（如素食、低碳等）\\n- 健康目标（如减脂、增肌、控糖等）\\n- 不喜欢的食物\\n- 烹饪条件限制\\n\\n我可以根据您的具体情况，为您提供更个性化的饮食建议。\"\n  }\n} | extracted_action=Finish[好的，我已经将您的花生过敏信息记录下来了。🥜❌\n\n今后为您提供任何饮食建议时，我都会严格避开花生及含花生的食品，包括：\n- 花生本身及花生制品（花生酱、花生油等）\n- 可能含有花生的混合食品（某些零食、糕点、调味料等）\n- 存在交叉污染风险的食品\n\n**安全提示**：外出就餐或购买包装食品时，请务必仔细查看配料表和过敏原标识，必要时向餐厅工作人员说明您的过敏情况。\n\n请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如：\n- 饮食模式（如素食、低碳等）\n- 健康目标（如减脂、增肌、控糖等）\n- 不喜欢的食物\n- 烹饪条件限制\n\n我可以根据您的具体情况，为您提供更个性化的饮食建议。]"
+        }
+      ],
+      "state": {
+        "user_id": "bench_full_agent_task_05_20260430065113",
+        "rag_namespace": "wellness_bench_full_agent_task_05_20260430065113",
+        "knowledgebase_dir": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw",
+        "memory_summary": "📊 记忆系统摘要\n总记忆数: 1\n当前会话: session_20260430_015137\n对话轮次: 1\n\n📋 记忆类型分布:\n  • 工作记忆: 0 条 (平均重要性: 0.00)\n  • 情景记忆: 1 条 (平均重要性: 1.00)\n\n⭐ 重要记忆 (前1条):\n  1. profile_update: wellness profile\nallergies: 花生\ndiet_pattern:... (重要性: 1.00)",
+        "rag_summary": "📊 **RAG 知识库统计**\n📝 命名空间: wellness_bench_full_agent_task_05_20260430065113\n📋 集合名称: rag_knowledge_base\n📂 存储根路径: D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\store\\bench_full_agent_task_05_20260430065113\n📦 存储类型: qdrant\n📊 文档分块数: 5\n🔢 向量维度: 384\n📎 距离度量: Cosine\n\n🟢 **系统状态**\n✅ RAG 管道: 正常\n✅ LLM 连接: 正常",
+        "working_memory_summary": "当前没有仍然有效的短期上下文。",
+        "distilled_memory_summary": "当前没有提纯后的长期记忆。",
+        "distill_status_summary": "长期记忆提纯状态：等待达到提纯阈值：当前 1 轮，需要至少 4 轮。\n提纯来源：waiting",
+        "profile_parse_debug_summary": "profile_set 原始输入: allergies=花生\nprofile_set 解析结果: {'allergies': ['花生']}\n解析后字段: ['allergies']",
+        "current_profile": {
+          "profile_type": "wellness_profile",
+          "allergies": [
+            "花生"
+          ],
+          "diet_pattern": "",
+          "goal": "",
+          "dislikes": [],
+          "medical_notes": [],
+          "preferred_cuisines": [],
+          "cooking_constraints": [],
+          "notes": ""
+        },
+        "current_profile_summary": "allergies: 花生\ndiet_pattern: none\ngoal: none\ndislikes: none\nmedical_notes: none\npreferred_cuisines: none\ncooking_constraints: none\nnotes: none",
+        "knowledgebase_files": [
+          {
+            "name": "allergy_safety.md",
+            "stem": "allergy_safety",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\allergy_safety.md",
+            "size_bytes": 1111
+          },
+          {
+            "name": "diet_patterns.md",
+            "stem": "diet_patterns",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\diet_patterns.md",
+            "size_bytes": 1033
+          },
+          {
+            "name": "fat_loss_basics.md",
+            "stem": "fat_loss_basics",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\fat_loss_basics.md",
+            "size_bytes": 1028
+          },
+          {
+            "name": "meal_templates.md",
+            "stem": "meal_templates",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\meal_templates.md",
+            "size_bytes": 1030
+          },
+          {
+            "name": "muscle_gain_basics.md",
+            "stem": "muscle_gain_basics",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\muscle_gain_basics.md",
+            "size_bytes": 950
+          }
+        ],
+        "distill_every_n_turns": 4,
+        "memory_tool_session_id": "session_20260430_015137",
+        "memory_tool_conversation_count": 1,
+        "recent_dialogue_window": "- 用户: 我对花生过敏。\n- 助手: 好的，我已经将您的花生过敏信息记录下来了。🥜❌ 今后为您提供任何饮食建议时，我都会严格避开花生及含花生的食品，包括： - 花生本身及花生制品（花生酱、花生油等） - 可能含有花生的混合食品（某些零食、糕点、调味料等） - 存在交叉污染风险的食品 **安全提示**：外出就餐或购买包装食品时，请务必仔细查看配料表和过敏原标识，必要时向餐厅工作人员说明您的过敏情况。 请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如： - 饮...",
+        "completed_turn_count": 1
+      },
+      "metadata": {
+        "baseline": "full_agent",
+        "tool_groups": [
+          "memory",
+          "rag"
+        ]
+      }
+    },
+    {
+      "turn_index": 2,
+      "user_message": "我平时更偏好中式家常口味。",
+      "answer": "好的，我已经将您的中式家常口味偏好记录下来了！🍜🥢\n\n结合您之前的花生过敏信息，今后为您提供饮食建议时，我会：\n- ✅ 优先推荐中式家常风格的菜品和食谱\n- ❌ 严格避开花生及含花生的食品\n\n如果您需要，我可以为您：\n1. 规划适合的中式家常一日三餐\n2. 推荐安全的食材搭配方案\n3. 提供外出就餐的点餐建议\n\n请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如：\n- 是否有减脂、增肌或其他健康目标？\n- 是否有不喜欢的食材或忌口？\n- 是否有烹饪条件限制（如时间紧张、厨房设备有限等）？\n- 是否有其他过敏原需要注意？",
+      "terminated_reason": "finished",
+      "steps": [
+        {
+          "step_index": 1,
+          "thought": "用户表达了长期饮食偏好（中式家常口味），这属于 `preferred_cuisines` 字段。根据画像维护规则，用户首次明确说出饮食偏好时，应先读取画像，再使用 `profile_set` 写入或合并更新。虽然系统已注入画像摘要，但我仍需先调用 `profile_get` 确认当前状态，再更新。",
+          "action_text": "profile_get[]",
+          "tool_name": "profile_get",
+          "tool_input": "",
+          "observation": "当前用户画像：\nallergies: 花生\ndiet_pattern: none\ngoal: none\ndislikes: none\nmedical_notes: none\npreferred_cuisines: none\ncooking_constraints: none\nnotes: none",
+          "raw_response": "{\n  \"thought\": \"用户表达了长期饮食偏好（中式家常口味），这属于 `preferred_cuisines` 字段。根据画像维护规则，用户首次明确说出饮食偏好时，应先读取画像，再使用 `profile_set` 写入或合并更新。虽然系统已注入画像摘要，但我仍需先调用 `profile_get` 确认当前状态，再更新。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_get\",\n    \"input\": \"\",\n    \"answer\": \"\"\n  }\n}",
+          "action_debug": "raw_action_source={\n  \"thought\": \"用户表达了长期饮食偏好（中式家常口味），这属于 `preferred_cuisines` 字段。根据画像维护规则，用户首次明确说出饮食偏好时，应先读取画像，再使用 `profile_set` 写入或合并更新。虽然系统已注入画像摘要，但我仍需先调用 `profile_get` 确认当前状态，再更新。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_get\",\n    \"input\": \"\",\n    \"answer\": \"\"\n  }\n} | extracted_action=profile_get[]"
+        },
+        {
+          "step_index": 2,
+          "thought": "用户表达了长期饮食偏好（中式家常口味），这属于 `preferred_cuisines` 字段。已通过 profile_get 确认当前画像状态，现在需要使用 profile_set 更新 preferred_cuisines 字段为'中式家常'，同时保留已有的过敏信息（花生）。",
+          "action_text": "profile_set[preferred_cuisines=中式家常;allergies=花生]",
+          "tool_name": "profile_set",
+          "tool_input": "preferred_cuisines=中式家常;allergies=花生",
+          "observation": "✅ 当前用户画像已更新\n更新字段: allergies, preferred_cuisines\nallergies: 花生\ndiet_pattern: none\ngoal: none\ndislikes: none\nmedical_notes: none\npreferred_cuisines: 中式家常\ncooking_constraints: none\nnotes: none",
+          "raw_response": "{\n  \"thought\": \"用户表达了长期饮食偏好（中式家常口味），这属于 `preferred_cuisines` 字段。已通过 profile_get 确认当前画像状态，现在需要使用 profile_set 更新 preferred_cuisines 字段为'中式家常'，同时保留已有的过敏信息（花生）。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_set\",\n    \"input\": \"preferred_cuisines=中式家常;allergies=花生\",\n    \"answer\": \"\"\n  }\n}",
+          "action_debug": "raw_action_source={\n  \"thought\": \"用户表达了长期饮食偏好（中式家常口味），这属于 `preferred_cuisines` 字段。已通过 profile_get 确认当前画像状态，现在需要使用 profile_set 更新 preferred_cuisines 字段为'中式家常'，同时保留已有的过敏信息（花生）。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_set\",\n    \"input\": \"preferred_cuisines=中式家常;allergies=花生\",\n    \"answer\": \"\"\n  }\n} | extracted_action=profile_set[preferred_cuisines=中式家常;allergies=花生]"
+        },
+        {
+          "step_index": 3,
+          "thought": "用户画像已成功更新，preferred_cuisines 已设置为'中式家常'，allergies 保持为'花生'。现在需要给用户一个完整的回答，确认已记录他们的偏好，并询问是否还有其他需要记录的信息或是否需要提供具体的饮食建议。",
+          "action_text": "Finish[好的，我已经将您的中式家常口味偏好记录下来了！🍜🥢\n\n结合您之前的花生过敏信息，今后为您提供饮食建议时，我会：\n- ✅ 优先推荐中式家常风格的菜品和食谱\n- ❌ 严格避开花生及含花生的食品\n\n如果您需要，我可以为您：\n1. 规划适合的中式家常一日三餐\n2. 推荐安全的食材搭配方案\n3. 提供外出就餐的点餐建议\n\n请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如：\n- 是否有减脂、增肌或其他健康目标？\n- 是否有不喜欢的食材或忌口？\n- 是否有烹饪条件限制（如时间紧张、厨房设备有限等）？\n- 是否有其他过敏原需要注意？]",
+          "tool_name": null,
+          "tool_input": null,
+          "observation": null,
+          "raw_response": "{\n  \"thought\": \"用户画像已成功更新，preferred_cuisines 已设置为'中式家常'，allergies 保持为'花生'。现在需要给用户一个完整的回答，确认已记录他们的偏好，并询问是否还有其他需要记录的信息或是否需要提供具体的饮食建议。\",\n  \"action\": {\n    \"type\": \"finish\",\n    \"name\": \"\",\n    \"input\": \"\",\n    \"answer\": \"好的，我已经将您的中式家常口味偏好记录下来了！🍜🥢\\n\\n结合您之前的花生过敏信息，今后为您提供饮食建议时，我会：\\n- ✅ 优先推荐中式家常风格的菜品和食谱\\n- ❌ 严格避开花生及含花生的食品\\n\\n如果您需要，我可以为您：\\n1. 规划适合的中式家常一日三餐\\n2. 推荐安全的食材搭配方案\\n3. 提供外出就餐的点餐建议\\n\\n请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如：\\n- 是否有减脂、增肌或其他健康目标？\\n- 是否有不喜欢的食材或忌口？\\n- 是否有烹饪条件限制（如时间紧张、厨房设备有限等）？\\n- 是否有其他过敏原需要注意？\"\n  }\n}",
+          "action_debug": "raw_action_source={\n  \"thought\": \"用户画像已成功更新，preferred_cuisines 已设置为'中式家常'，allergies 保持为'花生'。现在需要给用户一个完整的回答，确认已记录他们的偏好，并询问是否还有其他需要记录的信息或是否需要提供具体的饮食建议。\",\n  \"action\": {\n    \"type\": \"finish\",\n    \"name\": \"\",\n    \"input\": \"\",\n    \"answer\": \"好的，我已经将您的中式家常口味偏好记录下来了！🍜🥢\\n\\n结合您之前的花生过敏信息，今后为您提供饮食建议时，我会：\\n- ✅ 优先推荐中式家常风格的菜品和食谱\\n- ❌ 严格避开花生及含花生的食品\\n\\n如果您需要，我可以为您：\\n1. 规划适合的中式家常一日三餐\\n2. 推荐安全的食材搭配方案\\n3. 提供外出就餐的点餐建议\\n\\n请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如：\\n- 是否有减脂、增肌或其他健康目标？\\n- 是否有不喜欢的食材或忌口？\\n- 是否有烹饪条件限制（如时间紧张、厨房设备有限等）？\\n- 是否有其他过敏原需要注意？\"\n  }\n} | extracted_action=Finish[好的，我已经将您的中式家常口味偏好记录下来了！🍜🥢\n\n结合您之前的花生过敏信息，今后为您提供饮食建议时，我会：\n- ✅ 优先推荐中式家常风格的菜品和食谱\n- ❌ 严格避开花生及含花生的食品\n\n如果您需要，我可以为您：\n1. 规划适合的中式家常一日三餐\n2. 推荐安全的食材搭配方案\n3. 提供外出就餐的点餐建议\n\n请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如：\n- 是否有减脂、增肌或其他健康目标？\n- 是否有不喜欢的食材或忌口？\n- 是否有烹饪条件限制（如时间紧张、厨房设备有限等）？\n- 是否有其他过敏原需要注意？]"
+        }
+      ],
+      "state": {
+        "user_id": "bench_full_agent_task_05_20260430065113",
+        "rag_namespace": "wellness_bench_full_agent_task_05_20260430065113",
+        "knowledgebase_dir": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw",
+        "memory_summary": "📊 记忆系统摘要\n总记忆数: 1\n当前会话: session_20260430_015137\n对话轮次: 2\n\n📋 记忆类型分布:\n  • 工作记忆: 0 条 (平均重要性: 0.00)\n  • 情景记忆: 1 条 (平均重要性: 1.00)\n\n⭐ 重要记忆 (前1条):\n  1. profile_update: wellness profile\nallergies: 花生\ndiet_pattern:... (重要性: 1.00)",
+        "rag_summary": "📊 **RAG 知识库统计**\n📝 命名空间: wellness_bench_full_agent_task_05_20260430065113\n📋 集合名称: rag_knowledge_base\n📂 存储根路径: D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\store\\bench_full_agent_task_05_20260430065113\n📦 存储类型: qdrant\n📊 文档分块数: 5\n🔢 向量维度: 384\n📎 距离度量: Cosine\n\n🟢 **系统状态**\n✅ RAG 管道: 正常\n✅ LLM 连接: 正常",
+        "working_memory_summary": "当前没有仍然有效的短期上下文。",
+        "distilled_memory_summary": "当前没有提纯后的长期记忆。",
+        "distill_status_summary": "长期记忆提纯状态：等待达到提纯阈值：当前 2 轮，需要至少 4 轮。\n提纯来源：waiting",
+        "profile_parse_debug_summary": "profile_set 原始输入: preferred_cuisines=中式家常;allergies=花生\nprofile_set 解析结果: {'preferred_cuisines': ['中式家常'], 'allergies': ['花生']}\n解析后字段: ['allergies', 'preferred_cuisines']",
+        "current_profile": {
+          "profile_type": "wellness_profile",
+          "allergies": [
+            "花生"
+          ],
+          "diet_pattern": "",
+          "goal": "",
+          "dislikes": [],
+          "medical_notes": [],
+          "preferred_cuisines": [
+            "中式家常"
+          ],
+          "cooking_constraints": [],
+          "notes": ""
+        },
+        "current_profile_summary": "allergies: 花生\ndiet_pattern: none\ngoal: none\ndislikes: none\nmedical_notes: none\npreferred_cuisines: 中式家常\ncooking_constraints: none\nnotes: none",
+        "knowledgebase_files": [
+          {
+            "name": "allergy_safety.md",
+            "stem": "allergy_safety",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\allergy_safety.md",
+            "size_bytes": 1111
+          },
+          {
+            "name": "diet_patterns.md",
+            "stem": "diet_patterns",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\diet_patterns.md",
+            "size_bytes": 1033
+          },
+          {
+            "name": "fat_loss_basics.md",
+            "stem": "fat_loss_basics",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\fat_loss_basics.md",
+            "size_bytes": 1028
+          },
+          {
+            "name": "meal_templates.md",
+            "stem": "meal_templates",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\meal_templates.md",
+            "size_bytes": 1030
+          },
+          {
+            "name": "muscle_gain_basics.md",
+            "stem": "muscle_gain_basics",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\muscle_gain_basics.md",
+            "size_bytes": 950
+          }
+        ],
+        "distill_every_n_turns": 4,
+        "memory_tool_session_id": "session_20260430_015137",
+        "memory_tool_conversation_count": 2,
+        "recent_dialogue_window": "- 用户: 我对花生过敏。\n- 助手: 好的，我已经将您的花生过敏信息记录下来了。🥜❌ 今后为您提供任何饮食建议时，我都会严格避开花生及含花生的食品，包括： - 花生本身及花生制品（花生酱、花生油等） - 可能含有花生的混合食品（某些零食、糕点、调味料等） - 存在交叉污染风险的食品 **安全提示**：外出就餐或购买包装食品时，请务必仔细查看配料表和过敏原标识，必要时向餐厅工作人员说明您的过敏情况。 请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如： - 饮...\n- 用户: 我平时更偏好中式家常口味。\n- 助手: 好的，我已经将您的中式家常口味偏好记录下来了！🍜🥢 结合您之前的花生过敏信息，今后为您提供饮食建议时，我会： - ✅ 优先推荐中式家常风格的菜品和食谱 - ❌ 严格避开花生及含花生的食品 如果您需要，我可以为您： 1. 规划适合的中式家常一日三餐 2. 推荐安全的食材搭配方案 3. 提供外出就餐的点餐建议 请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如： - 是否有减脂、增肌或其他健康目标？ - 是否有不喜欢的食材或...",
+        "completed_turn_count": 2
+      },
+      "metadata": {
+        "baseline": "full_agent",
+        "tool_groups": [
+          "memory",
+          "rag"
+        ]
+      }
+    },
+    {
+      "turn_index": 3,
+      "user_message": "我的目标是减脂，请给我一个明天的午餐建议。",
+      "answer": "根据您的减脂目标和中式家常口味偏好，同时严格避开花生过敏原，为您设计以下明天午餐方案：\n\n## 🍽️ 明日减脂午餐建议\n\n### 主菜推荐（二选一）\n**选项 A：清蒸鲈鱼配姜葱**\n- 鲈鱼 150-200g（优质蛋白，低脂肪）\n- 姜丝、葱段调味\n- 蒸制方式，少油健康\n\n**选项 B：鸡胸肉炒西兰花**\n- 鸡胸肉 150g（高蛋白低脂）\n- 西兰花 200g（高纤维、高体积）\n- 用橄榄油或菜籽油少量快炒\n- ⚠️ 不使用花生油、花生酱\n\n### 主食\n- 糙米饭或杂粮饭 150g（约一小碗）\n- 比白米饭更有饱腹感，升糖指数更低\n\n### 配菜\n- 清炒时蔬一份（如菠菜、油麦菜、冬瓜等）\n- 或凉拌黄瓜（用醋、蒜、少量生抽调味）\n\n### 饮品\n- 温水或淡茶\n- 避免含糖饮料\n\n## ⚠️ 花生过敏安全提醒\n- 外出就餐时务必告知餐厅您的花生过敏情况\n- 避免：花生酱、花生油、含花生的调味料\n- 注意交叉污染风险（某些餐厅可能用同一锅具烹饪含花生菜品）\n- 购买包装食品时仔细查看配料表和过敏原标识\n\n## 💡 减脂小贴士\n1. 吃饭顺序：先吃蔬菜→再吃蛋白质→最后吃主食，有助于控制血糖和增加饱腹感\n2. 细嚼慢咽，每餐用时 20 分钟以上\n3. 午餐吃到 7-8 分饱即可\n\n如需调整份量、更换菜品或有其他饮食需求，请随时告诉我！",
+      "terminated_reason": "finished",
+      "steps": [
+        {
+          "step_index": 1,
+          "thought": "用户提出了减脂目标并请求明天午餐建议。这是新的长期目标信息，需要更新到画像的 goal 字段。根据工作流程，有长期信息变更时应先读取画像，再使用 profile_set 更新。当前系统已注入画像摘要显示 goal 为 none，但我仍需先调用 profile_get 确认当前状态，然后再更新。",
+          "action_text": "profile_get[]",
+          "tool_name": "profile_get",
+          "tool_input": "",
+          "observation": "当前用户画像：\nallergies: 花生\ndiet_pattern: none\ngoal: none\ndislikes: none\nmedical_notes: none\npreferred_cuisines: 中式家常\ncooking_constraints: none\nnotes: none",
+          "raw_response": "{\n  \"thought\": \"用户提出了减脂目标并请求明天午餐建议。这是新的长期目标信息，需要更新到画像的 goal 字段。根据工作流程，有长期信息变更时应先读取画像，再使用 profile_set 更新。当前系统已注入画像摘要显示 goal 为 none，但我仍需先调用 profile_get 确认当前状态，然后再更新。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_get\",\n    \"input\": \"\"\n  }\n}",
+          "action_debug": "raw_action_source={\n  \"thought\": \"用户提出了减脂目标并请求明天午餐建议。这是新的长期目标信息，需要更新到画像的 goal 字段。根据工作流程，有长期信息变更时应先读取画像，再使用 profile_set 更新。当前系统已注入画像摘要显示 goal 为 none，但我仍需先调用 profile_get 确认当前状态，然后再更新。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_get\",\n    \"input\": \"\"\n  }\n} | extracted_action=profile_get[]"
+        },
+        {
+          "step_index": 2,
+          "thought": "用户提出了减脂目标，这是新的长期目标信息，需要更新到画像的 goal 字段。我已经通过 profile_get 确认了当前画像状态，现在需要使用 profile_set 更新 goal 字段为'减脂'。",
+          "action_text": "profile_set[goal=减脂]",
+          "tool_name": "profile_set",
+          "tool_input": "goal=减脂",
+          "observation": "✅ 当前用户画像已更新\n更新字段: goal\nallergies: 花生\ndiet_pattern: none\ngoal: 减脂\ndislikes: none\nmedical_notes: none\npreferred_cuisines: 中式家常\ncooking_constraints: none\nnotes: none",
+          "raw_response": "{\n  \"thought\": \"用户提出了减脂目标，这是新的长期目标信息，需要更新到画像的 goal 字段。我已经通过 profile_get 确认了当前画像状态，现在需要使用 profile_set 更新 goal 字段为'减脂'。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_set\",\n    \"input\": \"goal=减脂\",\n    \"answer\": \"\"\n  }\n}",
+          "action_debug": "raw_action_source={\n  \"thought\": \"用户提出了减脂目标，这是新的长期目标信息，需要更新到画像的 goal 字段。我已经通过 profile_get 确认了当前画像状态，现在需要使用 profile_set 更新 goal 字段为'减脂'。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"profile_set\",\n    \"input\": \"goal=减脂\",\n    \"answer\": \"\"\n  }\n} | extracted_action=profile_set[goal=减脂]"
+        },
+        {
+          "step_index": 3,
+          "thought": "用户画像已更新完成（goal=减脂，allergies=花生，preferred_cuisines=中式家常）。现在需要为用户提供明天的午餐建议。我需要先检索营养知识库获取减脂午餐的相关原则和中式家常菜品建议，确保推荐不含花生且符合减脂需求。",
+          "action_text": "kb_answer[减脂午餐的营养原则和中式家常菜品推荐]",
+          "tool_name": "kb_answer",
+          "tool_input": "减脂午餐的营养原则和中式家常菜品推荐",
+          "observation": "🤖 **智能问答结果**\n\n基于提供的上下文，以下是关于减脂营养原则和通用餐食模板的信息。**需要注意的是，提供的上下文中并未包含具体的“中式家常菜品”推荐。**\n\n### 1. 减脂营养原则\n根据片段 3，减脂餐食计划应遵循以下核心原则：\n*   **核心目标**：关注“可持续性、充足的蛋白质和饱腹感”（sustainability, adequate protein, and satiety）。\n*   **热量控制**：使用“适度的热量缺口，而非激进的节食”（moderate calorie deficit rather than an aggressive crash diet）。\n*   **蛋白质优先**： “每餐优先摄入蛋白质”，以支持饱腹感和肌肉保留（Prioritize protein at each meal to support satiety and muscle retention）。\n*   **食物选择**：强调“高体积食物”，例如蔬菜、清汤等（Emphasize high-volume foods such as vegetables, broth-based soups）。\n\n### 2. 通用餐食模板参考\n根据片段 1，以下简餐模板可用于日常计划（可应用于午餐）：\n*   **米饭碗组合**：搭配豆腐或鸡肉、混合蔬菜及酱汁（Rice bowl with tofu or chicken, mixed vegetables, and sauce）。\n*   **其他选项**：希腊酸奶或豆酸奶配水果、燕麦和种子；鸡蛋或豆腐炒食配吐司和蔬菜等。\n\n### 3. 信息缺失说明\n**上下文不足以回答“中式家常菜品推荐”这一部分。**\n*   提供的片段主要为英文通用营养建议，未列举具体的中式菜肴（如具体的炒菜、炖菜名称）。\n*   若需具体的中式菜品推荐，需要补充包含中式食谱或具体菜名信息的上下文。\n\n\n📚 **参考来源**\n🔵 [1] meal_templates.md (相似度: 0.256)\n🔵 [2] muscle_gain_basics.md (相似度: 0.212)\n🔵 [3] fat_loss_basics.md (相似度: 0.202)\n🔵 [4] allergy_safety.md (相似度: 0.152)\n🔵 [5] diet_patterns.md (相似度: 0.135)\n\n⚡ 检索: 41616ms | 生成: 50054ms | 平均相似度: 0.191",
+          "raw_response": "{\n  \"thought\": \"用户画像已更新完成（goal=减脂，allergies=花生，preferred_cuisines=中式家常）。现在需要为用户提供明天的午餐建议。我需要先检索营养知识库获取减脂午餐的相关原则和中式家常菜品建议，确保推荐不含花生且符合减脂需求。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"kb_answer\",\n    \"input\": \"减脂午餐的营养原则和中式家常菜品推荐\",\n    \"answer\": \"\"\n  }\n}",
+          "action_debug": "raw_action_source={\n  \"thought\": \"用户画像已更新完成（goal=减脂，allergies=花生，preferred_cuisines=中式家常）。现在需要为用户提供明天的午餐建议。我需要先检索营养知识库获取减脂午餐的相关原则和中式家常菜品建议，确保推荐不含花生且符合减脂需求。\",\n  \"action\": {\n    \"type\": \"tool\",\n    \"name\": \"kb_answer\",\n    \"input\": \"减脂午餐的营养原则和中式家常菜品推荐\",\n    \"answer\": \"\"\n  }\n} | extracted_action=kb_answer[减脂午餐的营养原则和中式家常菜品推荐]"
+        },
+        {
+          "step_index": 4,
+          "thought": "我已经更新了用户画像（goal=减脂），并从知识库获取了减脂营养原则。现在我有足够的信息来生成个性化的午餐建议：用户有花生过敏、偏好中式家常、目标是减脂。我需要基于减脂原则（高蛋白、高蔬菜、适度碳水）设计不含花生的中式家常午餐方案，然后直接给出完整建议。",
+          "action_text": "Finish[根据您的减脂目标和中式家常口味偏好，同时严格避开花生过敏原，为您设计以下明天午餐方案：\n\n## 🍽️ 明日减脂午餐建议\n\n### 主菜推荐（二选一）\n**选项 A：清蒸鲈鱼配姜葱**\n- 鲈鱼 150-200g（优质蛋白，低脂肪）\n- 姜丝、葱段调味\n- 蒸制方式，少油健康\n\n**选项 B：鸡胸肉炒西兰花**\n- 鸡胸肉 150g（高蛋白低脂）\n- 西兰花 200g（高纤维、高体积）\n- 用橄榄油或菜籽油少量快炒\n- ⚠️ 不使用花生油、花生酱\n\n### 主食\n- 糙米饭或杂粮饭 150g（约一小碗）\n- 比白米饭更有饱腹感，升糖指数更低\n\n### 配菜\n- 清炒时蔬一份（如菠菜、油麦菜、冬瓜等）\n- 或凉拌黄瓜（用醋、蒜、少量生抽调味）\n\n### 饮品\n- 温水或淡茶\n- 避免含糖饮料\n\n## ⚠️ 花生过敏安全提醒\n- 外出就餐时务必告知餐厅您的花生过敏情况\n- 避免：花生酱、花生油、含花生的调味料\n- 注意交叉污染风险（某些餐厅可能用同一锅具烹饪含花生菜品）\n- 购买包装食品时仔细查看配料表和过敏原标识\n\n## 💡 减脂小贴士\n1. 吃饭顺序：先吃蔬菜→再吃蛋白质→最后吃主食，有助于控制血糖和增加饱腹感\n2. 细嚼慢咽，每餐用时 20 分钟以上\n3. 午餐吃到 7-8 分饱即可\n\n如需调整份量、更换菜品或有其他饮食需求，请随时告诉我！]",
+          "tool_name": null,
+          "tool_input": null,
+          "observation": null,
+          "raw_response": "{\n  \"thought\": \"我已经更新了用户画像（goal=减脂），并从知识库获取了减脂营养原则。现在我有足够的信息来生成个性化的午餐建议：用户有花生过敏、偏好中式家常、目标是减脂。我需要基于减脂原则（高蛋白、高蔬菜、适度碳水）设计不含花生的中式家常午餐方案，然后直接给出完整建议。\",\n  \"action\": {\n    \"type\": \"finish\",\n    \"name\": \"\",\n    \"input\": \"\",\n    \"answer\": \"根据您的减脂目标和中式家常口味偏好，同时严格避开花生过敏原，为您设计以下明天午餐方案：\\n\\n## 🍽️ 明日减脂午餐建议\\n\\n### 主菜推荐（二选一）\\n**选项 A：清蒸鲈鱼配姜葱**\\n- 鲈鱼 150-200g（优质蛋白，低脂肪）\\n- 姜丝、葱段调味\\n- 蒸制方式，少油健康\\n\\n**选项 B：鸡胸肉炒西兰花**\\n- 鸡胸肉 150g（高蛋白低脂）\\n- 西兰花 200g（高纤维、高体积）\\n- 用橄榄油或菜籽油少量快炒\\n- ⚠️ 不使用花生油、花生酱\\n\\n### 主食\\n- 糙米饭或杂粮饭 150g（约一小碗）\\n- 比白米饭更有饱腹感，升糖指数更低\\n\\n### 配菜\\n- 清炒时蔬一份（如菠菜、油麦菜、冬瓜等）\\n- 或凉拌黄瓜（用醋、蒜、少量生抽调味）\\n\\n### 饮品\\n- 温水或淡茶\\n- 避免含糖饮料\\n\\n## ⚠️ 花生过敏安全提醒\\n- 外出就餐时务必告知餐厅您的花生过敏情况\\n- 避免：花生酱、花生油、含花生的调味料\\n- 注意交叉污染风险（某些餐厅可能用同一锅具烹饪含花生菜品）\\n- 购买包装食品时仔细查看配料表和过敏原标识\\n\\n## 💡 减脂小贴士\\n1. 吃饭顺序：先吃蔬菜→再吃蛋白质→最后吃主食，有助于控制血糖和增加饱腹感\\n2. 细嚼慢咽，每餐用时 20 分钟以上\\n3. 午餐吃到 7-8 分饱即可\\n\\n如需调整份量、更换菜品或有其他饮食需求，请随时告诉我！\"\n  }\n}",
+          "action_debug": "raw_action_source={\n  \"thought\": \"我已经更新了用户画像（goal=减脂），并从知识库获取了减脂营养原则。现在我有足够的信息来生成个性化的午餐建议：用户有花生过敏、偏好中式家常、目标是减脂。我需要基于减脂原则（高蛋白、高蔬菜、适度碳水）设计不含花生的中式家常午餐方案，然后直接给出完整建议。\",\n  \"action\": {\n    \"type\": \"finish\",\n    \"name\": \"\",\n    \"input\": \"\",\n    \"answer\": \"根据您的减脂目标和中式家常口味偏好，同时严格避开花生过敏原，为您设计以下明天午餐方案：\\n\\n## 🍽️ 明日减脂午餐建议\\n\\n### 主菜推荐（二选一）\\n**选项 A：清蒸鲈鱼配姜葱**\\n- 鲈鱼 150-200g（优质蛋白，低脂肪）\\n- 姜丝、葱段调味\\n- 蒸制方式，少油健康\\n\\n**选项 B：鸡胸肉炒西兰花**\\n- 鸡胸肉 150g（高蛋白低脂）\\n- 西兰花 200g（高纤维、高体积）\\n- 用橄榄油或菜籽油少量快炒\\n- ⚠️ 不使用花生油、花生酱\\n\\n### 主食\\n- 糙米饭或杂粮饭 150g（约一小碗）\\n- 比白米饭更有饱腹感，升糖指数更低\\n\\n### 配菜\\n- 清炒时蔬一份（如菠菜、油麦菜、冬瓜等）\\n- 或凉拌黄瓜（用醋、蒜、少量生抽调味）\\n\\n### 饮品\\n- 温水或淡茶\\n- 避免含糖饮料\\n\\n## ⚠️ 花生过敏安全提醒\\n- 外出就餐时务必告知餐厅您的花生过敏情况\\n- 避免：花生酱、花生油、含花生的调味料\\n- 注意交叉污染风险（某些餐厅可能用同一锅具烹饪含花生菜品）\\n- 购买包装食品时仔细查看配料表和过敏原标识\\n\\n## 💡 减脂小贴士\\n1. 吃饭顺序：先吃蔬菜→再吃蛋白质→最后吃主食，有助于控制血糖和增加饱腹感\\n2. 细嚼慢咽，每餐用时 20 分钟以上\\n3. 午餐吃到 7-8 分饱即可\\n\\n如需调整份量、更换菜品或有其他饮食需求，请随时告诉我！\"\n  }\n} | extracted_action=Finish[根据您的减脂目标和中式家常口味偏好，同时严格避开花生过敏原，为您设计以下明天午餐方案：\n\n## 🍽️ 明日减脂午餐建议\n\n### 主菜推荐（二选一）\n**选项 A：清蒸鲈鱼配姜葱**\n- 鲈鱼 150-200g（优质蛋白，低脂肪）\n- 姜丝、葱段调味\n- 蒸制方式，少油健康\n\n**选项 B：鸡胸肉炒西兰花**\n- 鸡胸肉 150g（高蛋白低脂）\n- 西兰花 200g（高纤维、高体积）\n- 用橄榄油或菜籽油少量快炒\n- ⚠️ 不使用花生油、花生酱\n\n### 主食\n- 糙米饭或杂粮饭 150g（约一小碗）\n- 比白米饭更有饱腹感，升糖指数更低\n\n### 配菜\n- 清炒时蔬一份（如菠菜、油麦菜、冬瓜等）\n- 或凉拌黄瓜（用醋、蒜、少量生抽调味）\n\n### 饮品\n- 温水或淡茶\n- 避免含糖饮料\n\n## ⚠️ 花生过敏安全提醒\n- 外出就餐时务必告知餐厅您的花生过敏情况\n- 避免：花生酱、花生油、含花生的调味料\n- 注意交叉污染风险（某些餐厅可能用同一锅具烹饪含花生菜品）\n- 购买包装食品时仔细查看配料表和过敏原标识\n\n## 💡 减脂小贴士\n1. 吃饭顺序：先吃蔬菜→再吃蛋白质→最后吃主食，有助于控制血糖和增加饱腹感\n2. 细嚼慢咽，每餐用时 20 分钟以上\n3. 午餐吃到 7-8 分饱即可\n\n如需调整份量、更换菜品或有其他饮食需求，请随时告诉我！]"
+        }
+      ],
+      "state": {
+        "user_id": "bench_full_agent_task_05_20260430065113",
+        "rag_namespace": "wellness_bench_full_agent_task_05_20260430065113",
+        "knowledgebase_dir": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw",
+        "memory_summary": "📊 记忆系统摘要\n总记忆数: 1\n当前会话: session_20260430_015137\n对话轮次: 3\n\n📋 记忆类型分布:\n  • 工作记忆: 0 条 (平均重要性: 0.00)\n  • 情景记忆: 1 条 (平均重要性: 1.00)\n\n⭐ 重要记忆 (前1条):\n  1. profile_update: wellness profile\nallergies: 花生\ndiet_pattern:... (重要性: 1.00)",
+        "rag_summary": "📊 **RAG 知识库统计**\n📝 命名空间: wellness_bench_full_agent_task_05_20260430065113\n📋 集合名称: rag_knowledge_base\n📂 存储根路径: D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\store\\bench_full_agent_task_05_20260430065113\n📦 存储类型: qdrant\n📊 文档分块数: 5\n🔢 向量维度: 384\n📎 距离度量: Cosine\n\n🟢 **系统状态**\n✅ RAG 管道: 正常\n✅ LLM 连接: 正常",
+        "working_memory_summary": "当前没有仍然有效的短期上下文。",
+        "distilled_memory_summary": "当前没有提纯后的长期记忆。",
+        "distill_status_summary": "长期记忆提纯状态：等待达到提纯阈值：当前 3 轮，需要至少 4 轮。\n提纯来源：waiting",
+        "profile_parse_debug_summary": "profile_set 原始输入: goal=减脂\nprofile_set 解析结果: {'goal': '减脂'}\n解析后字段: ['goal']",
+        "current_profile": {
+          "profile_type": "wellness_profile",
+          "allergies": [
+            "花生"
+          ],
+          "diet_pattern": "",
+          "goal": "减脂",
+          "dislikes": [],
+          "medical_notes": [],
+          "preferred_cuisines": [
+            "中式家常"
+          ],
+          "cooking_constraints": [],
+          "notes": ""
+        },
+        "current_profile_summary": "allergies: 花生\ndiet_pattern: none\ngoal: 减脂\ndislikes: none\nmedical_notes: none\npreferred_cuisines: 中式家常\ncooking_constraints: none\nnotes: none",
+        "knowledgebase_files": [
+          {
+            "name": "allergy_safety.md",
+            "stem": "allergy_safety",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\allergy_safety.md",
+            "size_bytes": 1111
+          },
+          {
+            "name": "diet_patterns.md",
+            "stem": "diet_patterns",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\diet_patterns.md",
+            "size_bytes": 1033
+          },
+          {
+            "name": "fat_loss_basics.md",
+            "stem": "fat_loss_basics",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\fat_loss_basics.md",
+            "size_bytes": 1028
+          },
+          {
+            "name": "meal_templates.md",
+            "stem": "meal_templates",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\meal_templates.md",
+            "size_bytes": 1030
+          },
+          {
+            "name": "muscle_gain_basics.md",
+            "stem": "muscle_gain_basics",
+            "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\muscle_gain_basics.md",
+            "size_bytes": 950
+          }
+        ],
+        "distill_every_n_turns": 4,
+        "memory_tool_session_id": "session_20260430_015137",
+        "memory_tool_conversation_count": 3,
+        "recent_dialogue_window": "- 用户: 我对花生过敏。\n- 助手: 好的，我已经将您的花生过敏信息记录下来了。🥜❌ 今后为您提供任何饮食建议时，我都会严格避开花生及含花生的食品，包括： - 花生本身及花生制品（花生酱、花生油等） - 可能含有花生的混合食品（某些零食、糕点、调味料等） - 存在交叉污染风险的食品 **安全提示**：外出就餐或购买包装食品时，请务必仔细查看配料表和过敏原标识，必要时向餐厅工作人员说明您的过敏情况。 请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如： - 饮...\n- 用户: 我平时更偏好中式家常口味。\n- 助手: 好的，我已经将您的中式家常口味偏好记录下来了！🍜🥢 结合您之前的花生过敏信息，今后为您提供饮食建议时，我会： - ✅ 优先推荐中式家常风格的菜品和食谱 - ❌ 严格避开花生及含花生的食品 如果您需要，我可以为您： 1. 规划适合的中式家常一日三餐 2. 推荐安全的食材搭配方案 3. 提供外出就餐的点餐建议 请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如： - 是否有减脂、增肌或其他健康目标？ - 是否有不喜欢的食材或...\n- 用户: 我的目标是减脂，请给我一个明天的午餐建议。\n- 助手: 根据您的减脂目标和中式家常口味偏好，同时严格避开花生过敏原，为您设计以下明天午餐方案： ## 🍽️ 明日减脂午餐建议 ### 主菜推荐（二选一） **选项 A：清蒸鲈鱼配姜葱** - 鲈鱼 150-200g（优质蛋白，低脂肪） - 姜丝、葱段调味 - 蒸制方式，少油健康 **选项 B：鸡胸肉炒西兰花** - 鸡胸肉 150g（高蛋白低脂） - 西兰花 200g（高纤维、高体积） - 用橄榄油或菜籽油少量快炒 - ⚠️ 不使用花生油...",
+        "completed_turn_count": 3
+      },
+      "metadata": {
+        "baseline": "full_agent",
+        "tool_groups": [
+          "memory",
+          "rag"
+        ]
+      }
+    }
+  ],
+  "final_state": {
+    "user_id": "bench_full_agent_task_05_20260430065113",
+    "rag_namespace": "wellness_bench_full_agent_task_05_20260430065113",
+    "knowledgebase_dir": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw",
+    "memory_summary": "📊 记忆系统摘要\n总记忆数: 1\n当前会话: session_20260430_015137\n对话轮次: 3\n\n📋 记忆类型分布:\n  • 工作记忆: 0 条 (平均重要性: 0.00)\n  • 情景记忆: 1 条 (平均重要性: 1.00)\n\n⭐ 重要记忆 (前1条):\n  1. profile_update: wellness profile\nallergies: 花生\ndiet_pattern:... (重要性: 1.00)",
+    "rag_summary": "📊 **RAG 知识库统计**\n📝 命名空间: wellness_bench_full_agent_task_05_20260430065113\n📋 集合名称: rag_knowledge_base\n📂 存储根路径: D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\store\\bench_full_agent_task_05_20260430065113\n📦 存储类型: qdrant\n📊 文档分块数: 5\n🔢 向量维度: 384\n📎 距离度量: Cosine\n\n🟢 **系统状态**\n✅ RAG 管道: 正常\n✅ LLM 连接: 正常",
+    "working_memory_summary": "当前没有仍然有效的短期上下文。",
+    "distilled_memory_summary": "当前没有提纯后的长期记忆。",
+    "distill_status_summary": "长期记忆提纯状态：等待达到提纯阈值：当前 3 轮，需要至少 4 轮。\n提纯来源：waiting",
+    "profile_parse_debug_summary": "profile_set 原始输入: goal=减脂\nprofile_set 解析结果: {'goal': '减脂'}\n解析后字段: ['goal']",
+    "current_profile": {
+      "profile_type": "wellness_profile",
+      "allergies": [
+        "花生"
+      ],
+      "diet_pattern": "",
+      "goal": "减脂",
+      "dislikes": [],
+      "medical_notes": [],
+      "preferred_cuisines": [
+        "中式家常"
+      ],
+      "cooking_constraints": [],
+      "notes": ""
+    },
+    "current_profile_summary": "allergies: 花生\ndiet_pattern: none\ngoal: 减脂\ndislikes: none\nmedical_notes: none\npreferred_cuisines: 中式家常\ncooking_constraints: none\nnotes: none",
+    "knowledgebase_files": [
+      {
+        "name": "allergy_safety.md",
+        "stem": "allergy_safety",
+        "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\allergy_safety.md",
+        "size_bytes": 1111
+      },
+      {
+        "name": "diet_patterns.md",
+        "stem": "diet_patterns",
+        "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\diet_patterns.md",
+        "size_bytes": 1033
+      },
+      {
+        "name": "fat_loss_basics.md",
+        "stem": "fat_loss_basics",
+        "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\fat_loss_basics.md",
+        "size_bytes": 1028
+      },
+      {
+        "name": "meal_templates.md",
+        "stem": "meal_templates",
+        "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\meal_templates.md",
+        "size_bytes": 1030
+      },
+      {
+        "name": "muscle_gain_basics.md",
+        "stem": "muscle_gain_basics",
+        "path": "D:\\CursorProjects\\WellnessAgent\\wellnessagent\\knowledgebase\\raw\\muscle_gain_basics.md",
+        "size_bytes": 950
+      }
+    ],
+    "distill_every_n_turns": 4,
+    "memory_tool_session_id": "session_20260430_015137",
+    "memory_tool_conversation_count": 3,
+    "recent_dialogue_window": "- 用户: 我对花生过敏。\n- 助手: 好的，我已经将您的花生过敏信息记录下来了。🥜❌ 今后为您提供任何饮食建议时，我都会严格避开花生及含花生的食品，包括： - 花生本身及花生制品（花生酱、花生油等） - 可能含有花生的混合食品（某些零食、糕点、调味料等） - 存在交叉污染风险的食品 **安全提示**：外出就餐或购买包装食品时，请务必仔细查看配料表和过敏原标识，必要时向餐厅工作人员说明您的过敏情况。 请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如： - 饮...\n- 用户: 我平时更偏好中式家常口味。\n- 助手: 好的，我已经将您的中式家常口味偏好记录下来了！🍜🥢 结合您之前的花生过敏信息，今后为您提供饮食建议时，我会： - ✅ 优先推荐中式家常风格的菜品和食谱 - ❌ 严格避开花生及含花生的食品 如果您需要，我可以为您： 1. 规划适合的中式家常一日三餐 2. 推荐安全的食材搭配方案 3. 提供外出就餐的点餐建议 请问您还有其他饮食偏好、健康目标或特殊需求需要我记录吗？例如： - 是否有减脂、增肌或其他健康目标？ - 是否有不喜欢的食材或...\n- 用户: 我的目标是减脂，请给我一个明天的午餐建议。\n- 助手: 根据您的减脂目标和中式家常口味偏好，同时严格避开花生过敏原，为您设计以下明天午餐方案： ## 🍽️ 明日减脂午餐建议 ### 主菜推荐（二选一） **选项 A：清蒸鲈鱼配姜葱** - 鲈鱼 150-200g（优质蛋白，低脂肪） - 姜丝、葱段调味 - 蒸制方式，少油健康 **选项 B：鸡胸肉炒西兰花** - 鸡胸肉 150g（高蛋白低脂） - 西兰花 200g（高纤维、高体积） - 用橄榄油或菜籽油少量快炒 - ⚠️ 不使用花生油...",
+    "completed_turn_count": 3,
+    "baseline_tool_groups": [
+      "memory",
+      "rag"
+    ]
+  }
+}

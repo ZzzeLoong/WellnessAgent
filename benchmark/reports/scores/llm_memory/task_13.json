@@ -1,0 +1,171 @@
+{
+  "task_id": "task_13",
+  "baseline": "llm_memory",
+  "difficulty": "hard",
+  "scores": {
+    "hard_constraint_score": 1.0,
+    "state_tracking_score": 0.0,
+    "profile_tracking_score": 0.0,
+    "session_tracking_score": 1.0,
+    "goal_alignment_score": 1.0,
+    "replanning_score": 1.0,
+    "rag_grounding_score": 1.0,
+    "knowledge_coverage_score": 1.0,
+    "rag_invocation_score": 1.0,
+    "tool_usage_score": 1.0,
+    "total_score": 0.75
+  },
+  "metric_details": {
+    "hard_constraint": {
+      "forbidden_hits": [],
+      "per_term": [
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "鸡胸肉",
+          "judge_used": false,
+          "final_violation": false
+        },
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "牛肉",
+          "judge_used": false,
+          "final_violation": false
+        },
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "鱼",
+          "judge_used": false,
+          "final_violation": false
+        },
+        {
+          "violation": false,
+          "reason": "term_not_in_answer",
+          "term": "虾",
+          "judge_used": false,
+          "final_violation": false
+        }
+      ],
+      "judge_mode": "hybrid"
+    },
+    "state_tracking": {
+      "profile": {
+        "applicable": true,
+        "profile_field_checks": {
+          "diet_pattern": false
+        },
+        "profile_absence_checks": {},
+        "passed": 0,
+        "checks": 1
+      },
+      "session": {
+        "applicable": false,
+        "session_checks": {}
+      },
+      "applicable": true
+    },
+    "profile_tracking": {
+      "applicable": true,
+      "profile_field_checks": {
+        "diet_pattern": false
+      },
+      "profile_absence_checks": {},
+      "passed": 0,
+      "checks": 1
+    },
+    "session_tracking": {
+      "applicable": false,
+      "session_checks": {}
+    },
+    "goal_alignment": {
+      "applicable": true,
+      "required_terms": [
+        "蛋白"
+      ],
+      "hits": [
+        "蛋白"
+      ]
+    },
+    "replanning": {
+      "applicable": true,
+      "answer_changed": true,
+      "required_tools": [
+        "profile_set"
+      ],
+      "used_tools_after_first_turn": [
+        "kb_answer",
+        "kb_search",
+        "profile_get",
+        "profile_set"
+      ],
+      "tool_condition": true
+    },
+    "rag_grounding": {
+      "applicable": false,
+      "invocation": {
+        "applicable": false
+      },
+      "coverage": {
+        "applicable": false
+      }
+    },
+    "rag_invocation": {
+      "applicable": false
+    },
+    "knowledge_coverage": {
+      "applicable": false
+    },
+    "tool_usage": {
+      "applicable": true,
+      "required_any_of": [
+        "profile_set"
+      ],
+      "actually_invoked": [
+        "kb_answer",
+        "kb_search",
+        "profile_get",
+        "profile_set"
+      ],
+      "matched": [
+        "profile_set"
+      ]
+    },
+    "total": {
+      "breakdown": [
+        {
+          "metric": "hard_constraint_score",
+          "weight": 0.35,
+          "score": 1.0,
+          "weighted": 0.35
+        },
+        {
+          "metric": "state_tracking_score",
+          "weight": 0.25,
+          "score": 0.0,
+          "weighted": 0.0
+        },
+        {
+          "metric": "goal_alignment_score",
+          "weight": 0.1,
+          "score": 1.0,
+          "weighted": 0.1
+        },
+        {
+          "metric": "replanning_score",
+          "weight": 0.3,
+          "score": 1.0,
+          "weighted": 0.3
+        }
+      ],
+      "denominator": 1.0
+    }
+  },
+  "optional_judge": {
+    "enabled": false,
+    "notes": "LLM judge 未启用；第一版 benchmark 仅使用 deterministic 评分。",
+    "task_id": "task_13",
+    "baseline": "llm_memory"
+  }
+}

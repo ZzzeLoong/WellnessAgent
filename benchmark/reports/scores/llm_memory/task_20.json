@@ -1,0 +1,161 @@
+{
+  "task_id": "task_20",
+  "baseline": "llm_memory",
+  "difficulty": "hard",
+  "scores": {
+    "hard_constraint_score": 1.0,
+    "state_tracking_score": 1.0,
+    "profile_tracking_score": 1.0,
+    "session_tracking_score": 1.0,
+    "goal_alignment_score": 1.0,
+    "replanning_score": 1.0,
+    "rag_grounding_score": 1.0,
+    "knowledge_coverage_score": 1.0,
+    "rag_invocation_score": 1.0,
+    "tool_usage_score": 1.0,
+    "total_score": 1.0
+  },
+  "metric_details": {
+    "hard_constraint": {
+      "forbidden_hits": [],
+      "per_term": [],
+      "judge_mode": "hybrid"
+    },
+    "state_tracking": {
+      "profile": {
+        "applicable": true,
+        "profile_field_checks": {
+          "goal": true
+        },
+        "profile_absence_checks": {},
+        "passed": 1,
+        "checks": 1
+      },
+      "session": {
+        "applicable": false,
+        "session_checks": {}
+      },
+      "applicable": true
+    },
+    "profile_tracking": {
+      "applicable": true,
+      "profile_field_checks": {
+        "goal": true
+      },
+      "profile_absence_checks": {},
+      "passed": 1,
+      "checks": 1
+    },
+    "session_tracking": {
+      "applicable": false,
+      "session_checks": {}
+    },
+    "goal_alignment": {
+      "applicable": true,
+      "required_terms": [
+        "早餐",
+        "午餐",
+        "晚餐"
+      ],
+      "hits": [
+        "早餐",
+        "午餐",
+        "晚餐"
+      ]
+    },
+    "replanning": {
+      "applicable": false
+    },
+    "rag_grounding": {
+      "applicable": true,
+      "invocation": {
+        "applicable": true,
+        "kb_tools_used": [
+          "kb_answer",
+          "kb_search"
+        ]
+      },
+      "coverage": {
+        "applicable": true,
+        "knowledge_point_hits": [
+          "蛋白",
+          "蔬菜",
+          "主食"
+        ],
+        "knowledge_points_total": [
+          "蛋白",
+          "蔬菜",
+          "主食"
+        ]
+      }
+    },
+    "rag_invocation": {
+      "applicable": true,
+      "kb_tools_used": [
+        "kb_answer",
+        "kb_search"
+      ]
+    },
+    "knowledge_coverage": {
+      "applicable": true,
+      "knowledge_point_hits": [
+        "蛋白",
+        "蔬菜",
+        "主食"
+      ],
+      "knowledge_points_total": [
+        "蛋白",
+        "蔬菜",
+        "主食"
+      ]
+    },
+    "tool_usage": {
+      "applicable": true,
+      "required_any_of": [
+        "profile_set",
+        "kb_answer",
+        "kb_search"
+      ],
+      "actually_invoked": [
+        "kb_answer",
+        "kb_search",
+        "profile_get",
+        "profile_set"
+      ],
+      "matched": [
+        "kb_answer",
+        "kb_search",
+        "profile_set"
+      ]
+    },
+    "total": {
+      "breakdown": [
+        {
+          "metric": "state_tracking_score",
+          "weight": 0.2,
+          "score": 1.0,
+          "weighted": 0.2
+        },
+        {
+          "metric": "goal_alignment_score",
+          "weight": 0.3,
+          "score": 1.0,
+          "weighted": 0.3
+        },
+        {
+          "metric": "knowledge_coverage_score",
+          "weight": 0.5,
+          "score": 1.0,
+          "weighted": 0.5
+        }
+      ],
+      "denominator": 1.0
+    }
+  },
+  "optional_judge": {
+    "enabled": false,
+    "notes": "LLM judge 未启用；第一版 benchmark 仅使用 deterministic 评分。",
+    "task_id": "task_20",
+    "baseline": "llm_memory"
+  }
+}

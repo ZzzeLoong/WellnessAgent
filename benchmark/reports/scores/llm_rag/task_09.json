@@ -1,0 +1,136 @@
+{
+  "task_id": "task_09",
+  "baseline": "llm_rag",
+  "difficulty": "medium",
+  "scores": {
+    "hard_constraint_score": 1.0,
+    "state_tracking_score": 0.3333333333333333,
+    "profile_tracking_score": 0.6666666666666666,
+    "session_tracking_score": 0.0,
+    "goal_alignment_score": 1.0,
+    "replanning_score": 1.0,
+    "rag_grounding_score": 1.0,
+    "knowledge_coverage_score": 1.0,
+    "rag_invocation_score": 1.0,
+    "tool_usage_score": 1.0,
+    "total_score": 0.4666666666666667
+  },
+  "metric_details": {
+    "hard_constraint": {
+      "forbidden_hits": [],
+      "per_term": [],
+      "judge_mode": "hybrid"
+    },
+    "state_tracking": {
+      "profile": {
+        "applicable": true,
+        "profile_field_checks": {
+          "goal": false
+        },
+        "profile_absence_checks": {
+          "notes": true,
+          "cooking_constraints": true
+        },
+        "passed": 2,
+        "checks": 3
+      },
+      "session": {
+        "applicable": true,
+        "session_checks": {
+          "便利店": false,
+          "30元以内": false
+        },
+        "passed": 0,
+        "checks": 2
+      },
+      "applicable": true
+    },
+    "profile_tracking": {
+      "applicable": true,
+      "profile_field_checks": {
+        "goal": false
+      },
+      "profile_absence_checks": {
+        "notes": true,
+        "cooking_constraints": true
+      },
+      "passed": 2,
+      "checks": 3
+    },
+    "session_tracking": {
+      "applicable": true,
+      "session_checks": {
+        "便利店": false,
+        "30元以内": false
+      },
+      "passed": 0,
+      "checks": 2
+    },
+    "goal_alignment": {
+      "applicable": true,
+      "required_terms": [
+        "今晚"
+      ],
+      "hits": [
+        "今晚"
+      ]
+    },
+    "replanning": {
+      "applicable": false
+    },
+    "rag_grounding": {
+      "applicable": false,
+      "invocation": {
+        "applicable": false
+      },
+      "coverage": {
+        "applicable": false
+      }
+    },
+    "rag_invocation": {
+      "applicable": false
+    },
+    "knowledge_coverage": {
+      "applicable": false
+    },
+    "tool_usage": {
+      "applicable": true,
+      "required_any_of": [
+        "session_note"
+      ],
+      "actually_invoked": [
+        "kb_answer",
+        "profile_get",
+        "profile_set",
+        "session_digest",
+        "session_note"
+      ],
+      "matched": [
+        "session_note"
+      ]
+    },
+    "total": {
+      "breakdown": [
+        {
+          "metric": "state_tracking_score",
+          "weight": 0.8,
+          "score": 0.3333333333333333,
+          "weighted": 0.26666666666666666
+        },
+        {
+          "metric": "goal_alignment_score",
+          "weight": 0.2,
+          "score": 1.0,
+          "weighted": 0.2
+        }
+      ],
+      "denominator": 1.0
+    }
+  },
+  "optional_judge": {
+    "enabled": false,
+    "notes": "LLM judge 未启用；第一版 benchmark 仅使用 deterministic 评分。",
+    "task_id": "task_09",
+    "baseline": "llm_rag"
+  }
+}

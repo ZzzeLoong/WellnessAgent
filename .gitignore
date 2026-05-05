@@ -40,8 +40,8 @@ build/
 
 docs/
 
-benchmark/reports/*
-!benchmark/reports/.gitkeep
+# benchmark/reports/*
+# !benchmark/reports/.gitkeep
 
 *.docx
 *.doc
