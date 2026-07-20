@@ -23,10 +23,10 @@ def score_tool_usage(
 
     invoked = sorted(
         {
-            step.tool_name
+            name
             for turn in run.turn_results
             for step in turn.steps
-            if step.tool_name
+            for name in step.tool_names
         }
     )
     matched = sorted(set(required) & set(invoked))

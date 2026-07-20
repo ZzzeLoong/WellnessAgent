@@ -1,10 +1,17 @@
 """HelloAgents统一LLM接口 - 基于OpenAI原生API"""
 
 import os
-from typing import Literal, Optional, Iterator
+import time
+from typing import Literal, Optional, Iterator, Union
 from openai import OpenAI
 
 from .exceptions import HelloAgentsException
+from .llm_response import LLMToolResponse, ToolCall
+
+# 原生支持 Function Calling 的 provider 白名单。
+_FUNCTION_CALLING_PROVIDERS = frozenset(
+    {"openai", "deepseek", "qwen", "modelscope", "kimi", "zhipu"}
+)
 
 # 支持的LLM提供商
 SUPPORTED_PROVIDERS = Literal[
@@ -341,3 +348,65 @@ class HelloAgentsLLM:
         """
         temperature = kwargs.get('temperature')
         yield from self.think(messages, temperature)
+
+    def invoke_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        tool_choice: Union[str, dict] = "auto",
+        **kwargs,
+    ) -> LLMToolResponse:
+        """原生 Function Calling 调用，返回结构化 tool_calls。
+
+        Args:
+            messages: OpenAI 格式累积消息（含 assistant.tool_calls / tool.tool_call_id）。
+            tools: OpenAI tools schema 列表。
+            tool_choice: "auto" / "none" / 指定工具。
+        """
+        started = time.time()
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=kwargs.get("temperature", self.temperature),
+                max_tokens=kwargs.get("max_tokens", self.max_tokens),
+            )
+        except Exception as e:
+            raise HelloAgentsException(f"LLM工具调用失败: {str(e)}")
+
+        message = response.choices[0].message
+        tool_calls = [
+            ToolCall(
+                id=tc.id,
+                name=tc.function.name,
+                arguments=tc.function.arguments or "",
+            )
+            for tc in (message.tool_calls or [])
+        ]
+        usage = {}
+        if getattr(response, "usage", None) is not None:
+            try:
+                usage = response.usage.model_dump()
+            except Exception:
+                usage = dict(getattr(response, "usage", {}) or {})
+
+        return LLMToolResponse(
+            content=message.content,
+            tool_calls=tool_calls,
+            model=self.model,
+            usage=usage,
+            latency_ms=int((time.time() - started) * 1000),
+        )
+
+    def supports_function_calling(self) -> bool:
+        """判断当前 provider 是否走原生 Function Calling。
+
+        环境变量 ``WELLNESS_FORCE_FUNCTION_CALLING`` 可强制覆盖（true/false）。
+        白名单内的云端 provider 返回 True；ollama/vllm/local 返回 False。
+        """
+        forced = os.getenv("WELLNESS_FORCE_FUNCTION_CALLING")
+        if forced is not None:
+            return forced.strip().lower() in {"1", "true", "yes", "on"}
+        return (self.provider or "").lower() in _FUNCTION_CALLING_PROVIDERS

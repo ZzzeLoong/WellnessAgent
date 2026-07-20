@@ -1,63 +1,53 @@
-"""ReAct Agent实现 - 推理与行动结合的智能体"""
+"""ReAct Agent（重写内核）。
 
-from dataclasses import asdict, dataclass
+累积 ``messages`` 数组 + 原生 Function Calling 主循环；不支持 FC 的 provider 走
+JSON 回退（同样基于累积 messages，仅 tool_calls 来源不同）。结束判定用内置
+``finish`` 工具。可选接入上下文压缩、工具输出截断、trace、Guardrails。
+
+详见 docs/tech-design-phase1.md 第 2、4、5、7 节。
+"""
+
+from __future__ import annotations
+
 import json
+import os
 import re
-from typing import Any, Optional, List, Tuple
+import uuid
+from dataclasses import asdict, dataclass, field
+from typing import Any, Callable, List, Optional
+
 from ..core.agent import Agent
 from ..core.llm import HelloAgentsLLM
 from ..core.config import Config
+from ..core.context import HistoryManager, ObservationTruncator, TokenCounter
+from ..core.llm_response import LLMToolResponse, ToolCall
 from ..core.message import Message
-from ..tools.registry import ToolRegistry
+from ..tools.registry import FINISH_TOOL_NAME, ToolRegistry
+from ..tools.response import ToolResponse, ToolStatus
 
-# 默认ReAct提示词模板
-DEFAULT_REACT_PROMPT = """你是一个具备推理和行动能力的AI助手。你可以通过思考分析问题，然后调用合适的工具来获取信息，最终给出准确的答案。
 
-## 可用工具
-{tools}
-
-## 工作流程
-请严格输出一个 JSON 对象，每次只能执行一个步骤，格式如下：
-{{
-  "thought": "分析问题，确定需要什么信息，制定研究策略。",
-  "action": {{
-    "type": "tool" 或 "finish",
-    "name": "工具名，仅 type=tool 时需要",
-    "input": "工具输入，仅 type=tool 时需要，可为空字符串",
-    "answer": "最终回答，仅 type=finish 时需要"
-  }}
-}}
-
-## 重要提醒
-1. 每次回应必须是合法 JSON，不要输出 JSON 之外的任何额外文本
-2. `action.type="tool"` 时，必须提供 `name` 和 `input`
-3. 只有当你确信有足够信息回答问题时，才使用 `action.type="finish"`
-4. 如果工具返回的信息不够，继续使用其他工具或相同工具的不同参数
-
-## 当前任务
-**Question:** {question}
-
-## 已注入上下文
-{additional_context}
-
-## 执行历史
-{history}
-
-现在开始你的推理和行动："""
+# 对外稳定的终止原因集合。
+TERMINATED_FINISHED = "finished"
+TERMINATED_INVALID_ACTION = "invalid_action"
+TERMINATED_MAX_STEPS = "max_steps"
+TERMINATED_LLM_EMPTY = "llm_empty_response"
 
 
 @dataclass
 class StepRecord:
-    """单步 ReAct 执行记录。"""
+    """单步 ReAct 执行记录（从累积 messages 派生）。
 
-    step_index: int
+    新结构以 ``tool_calls`` / ``tool_results`` 为主（无旧别名）：一步
+    （``assistant``）可同时发起多个工具调用，``tool_results`` 与之一一对应。
+    """
+
+    index: int
+    role: str  # "assistant" | "tool"
     thought: Optional[str]
-    action_text: Optional[str]
-    tool_name: Optional[str] = None
-    tool_input: Optional[str] = None
-    observation: Optional[str] = None
+    tool_calls: List[dict] = field(default_factory=list)
+    tool_results: List[dict] = field(default_factory=list)
+    source: str = "function_calling"
     raw_response: Optional[str] = None
-    action_debug: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -68,7 +58,7 @@ class ReActRunResult:
     """结构化 ReAct 执行结果。"""
 
     final_answer: str
-    steps: list[StepRecord]
+    steps: List[StepRecord]
     terminated_reason: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -78,19 +68,10 @@ class ReActRunResult:
             "terminated_reason": self.terminated_reason,
         }
 
+
 class ReActAgent(Agent):
-    """
-    ReAct (Reasoning and Acting) Agent
-    
-    结合推理和行动的智能体，能够：
-    1. 分析问题并制定行动计划
-    2. 调用外部工具获取信息
-    3. 基于观察结果进行推理
-    4. 迭代执行直到得出最终答案
-    
-    这是一个经典的Agent范式，特别适合需要外部信息的任务。
-    """
-    
+    """累积 messages + Function Calling 的 ReAct Agent。"""
+
     def __init__(
         self,
         name: str,
@@ -98,206 +79,497 @@ class ReActAgent(Agent):
         tool_registry: Optional[ToolRegistry] = None,
         system_prompt: Optional[str] = None,
         config: Optional[Config] = None,
-        max_steps: int = 5,
-        custom_prompt: Optional[str] = None
+        max_steps: int = 8,
+        fallback_prompt_suffix: str = "",
+        context_window: Optional[int] = None,
     ):
-        """
-        初始化ReActAgent
-
-        Args:
-            name: Agent名称
-            llm: LLM实例
-            tool_registry: 工具注册表（可选，如果不提供则创建空的工具注册表）
-            system_prompt: 系统提示词
-            config: 配置对象
-            max_steps: 最大执行步数
-            custom_prompt: 自定义提示词模板
-        """
         super().__init__(name, llm, system_prompt, config)
-
-        # 如果没有提供tool_registry，创建一个空的
-        if tool_registry is None:
-            self.tool_registry = ToolRegistry()
-        else:
-            self.tool_registry = tool_registry
-
+        self.tool_registry = tool_registry or ToolRegistry()
         self.max_steps = max_steps
-        self.current_history: List[str] = []
+        self.fallback_prompt_suffix = fallback_prompt_suffix
 
-        # 设置提示词模板：用户自定义优先，否则使用默认模板
-        self.prompt_template = custom_prompt if custom_prompt else DEFAULT_REACT_PROMPT
+        self.messages: List[Message] = []
+
+        self.context_window = context_window or int(
+            os.getenv("WELLNESS_CONTEXT_WINDOW", "262144")
+        )
+        self.token_counter = TokenCounter(model="gpt-4")
+        self.history_manager = HistoryManager()
+        self.truncator = ObservationTruncator()
+
+        # 可选钩子（由业务 agent 注入）。
+        self.build_system_prompt: Optional[Callable[[str], str]] = None
+        self.trace_logger = None
+        self.guardrails = None
+        self.get_guardrail_profile: Optional[Callable[[], Any]] = None
+        self.smart_compression = (
+            os.getenv("WELLNESS_SMART_COMPRESSION", "false").lower() == "true"
+        )
+        self.get_summary_llm: Optional[Callable[[], Any]] = None
 
     def add_tool(self, tool):
-        """
-        添加工具到工具注册表
-        支持MCP工具的自动展开
+        """兼容旧接口：注册 Tool 对象。"""
+        self.tool_registry.register_tool(tool)
 
-        Args:
-            tool: 工具实例(可以是普通Tool或MCPTool)
-        """
-        # 检查是否是MCP工具
-        if hasattr(tool, 'auto_expand') and tool.auto_expand:
-            # MCP工具会自动展开为多个工具
-            if hasattr(tool, '_available_tools') and tool._available_tools:
-                for mcp_tool in tool._available_tools:
-                    # 创建包装工具
-                    from ..tools.base import Tool
-                    wrapped_tool = Tool(
-                        name=f"{tool.name}_{mcp_tool['name']}",
-                        description=mcp_tool.get('description', ''),
-                        func=lambda input_text, t=tool, tn=mcp_tool['name']: t.run({
-                            "action": "call_tool",
-                            "tool_name": tn,
-                            "arguments": {"input": input_text}
-                        })
-                    )
-                    self.tool_registry.register_tool(wrapped_tool)
-                print(f"✅ MCP工具 '{tool.name}' 已展开为 {len(tool._available_tools)} 个独立工具")
-            else:
-                self.tool_registry.register_tool(tool)
-        else:
-            self.tool_registry.register_tool(tool)
-
+    # ------------------------------------------------------------------ public
     def run(self, input_text: str, **kwargs) -> str:
-        """运行 ReAct Agent 并返回最终答案。"""
         return self.run_with_trace(input_text, **kwargs).final_answer
 
-    def run_with_trace(self, input_text: str, **kwargs) -> ReActRunResult:
-        """运行 ReAct Agent 并返回结构化步骤追踪。"""
-        self.current_history = []
-        current_step = 0
-        steps: List[StepRecord] = []
-        
-        print(f"\n🤖 {self.name} 开始处理问题: {input_text}")
-        
-        while current_step < self.max_steps:
-            current_step += 1
-            print(f"\n--- 第 {current_step} 步 ---")
-            
-            # 构建提示词
-            tools_desc = self.tool_registry.get_tools_description()
-            history_str = "\n".join(self.current_history)
-            additional_context = self.build_additional_context(input_text)
-            prompt = self.prompt_template.format(
-                tools=tools_desc,
-                question=input_text,
-                history=history_str,
-                additional_context=additional_context,
-            )
-            
-            # 调用LLM
-            messages = [{"role": "user", "content": prompt}]
-            response_text = self._invoke_react_llm(messages, **kwargs)
-            
-            if not response_text:
-                print("❌ 错误：LLM未能返回有效响应。")
-                return self._finalize_run(
-                    input_text=input_text,
-                    final_answer="抱歉，模型未能返回有效响应。",
-                    steps=steps,
-                    terminated_reason="llm_empty_response",
-                )
-            
-            # 解析输出
-            thought, action = self._parse_output(response_text)
-            step_record = StepRecord(
-                step_index=current_step,
-                thought=thought,
-                action_text=action,
-                raw_response=response_text,
-                action_debug=(
-                    f"raw_action_source={self._extract_action_source(response_text)} | "
-                    f"extracted_action={action or '(none)'}"
-                ),
-            )
-            
-            if thought:
-                print(f"🤔 思考: {thought}")
-            
-            if not action:
-                print("⚠️ 警告：未能解析出有效的Action，流程终止。")
-                steps.append(step_record)
-                return self._finalize_run(
-                    input_text=input_text,
-                    final_answer="抱歉，我未能解析出有效动作，无法继续执行。",
-                    steps=steps,
-                    terminated_reason="invalid_action",
-                )
-            
-            # 检查是否完成
-            if action.startswith("Finish"):
-                final_answer = self._parse_action_input(action)
-                print(f"🎉 最终答案: {final_answer}")
-                steps.append(step_record)
-                return self._finalize_run(
-                    input_text=input_text,
-                    final_answer=final_answer,
-                    steps=steps,
-                    terminated_reason="finished",
-                )
-            
-            # 执行工具调用
-            tool_name, tool_input = self._parse_action(action)
-            step_record.tool_name = tool_name
-            step_record.tool_input = tool_input
-            if not tool_name or tool_input is None:
-                self.current_history.append("Observation: 无效的Action格式，请检查。")
-                step_record.observation = "无效的Action格式，请检查。"
-                steps.append(step_record)
-                continue
-            
-            print(f"🎬 行动: {tool_name}[{tool_input}]")
-            
-            # 调用工具
-            observation = self.tool_registry.execute_tool(tool_name, tool_input)
-            print(f"👀 观察: {observation}")
-            step_record.observation = observation
-            steps.append(step_record)
-            
-            # 更新历史
-            if thought:
-                self.current_history.append(f"Thought: {thought}")
-            self.current_history.append(f"Action: {action}")
-            self.current_history.append(f"Observation: {observation}")
-        
-        print("⏰ 已达到最大步数，流程终止。")
-        return self._finalize_run(
-            input_text=input_text,
-            final_answer="抱歉，我无法在限定步数内完成这个任务。",
-            steps=steps,
-            terminated_reason="max_steps",
+    def run_with_trace(
+        self,
+        input_text: str,
+        system_prompt_override: Optional[str] = None,
+        allowed_tools: Optional[List[str]] = None,
+        **kwargs,
+    ) -> ReActRunResult:
+        """非流式：驱动内部事件生成器，只取最终结果。
+
+        Args:
+            input_text: 用户输入。
+            system_prompt_override: P0-1 隔离运行入口。传入时**一次性**用它作为本次
+                运行的 system 消息，绕过 ``build_system_prompt`` 钩子（子代理注入受限
+                上下文的正规入口，替代猴补丁）。不传=一期行为。
+            allowed_tools: P0-1/P0-4 授权工具白名单。传入时本次运行只暴露/执行白名单内
+                的工具（``finish`` 恒被允许）。不传=一期行为（全部工具）。
+        """
+        result: Optional[ReActRunResult] = None
+        for event in self._iter_events(
+            input_text,
+            system_prompt_override=system_prompt_override,
+            allowed_tools=allowed_tools,
+        ):
+            if event["type"] == "result":
+                result = event["result"]
+        assert result is not None  # 生成器保证最终必产出 result
+        return result
+
+    def stream_run(
+        self,
+        input_text: str,
+        system_prompt_override: Optional[str] = None,
+        allowed_tools: Optional[List[str]] = None,
+        **kwargs,
+    ):
+        """流式：逐事件产出（step_start / tool_call / tool_result / step / result）。
+
+        供业务 agent 的 ``chat_stream`` 消费；事件为普通 dict，业务层自行映射为
+        SSE。最终答案分段由业务层对 ``result.final_answer`` 切片（方案 §6.2 一期做法）。
+
+        ``system_prompt_override`` / ``allowed_tools`` 语义同 ``run_with_trace``（P0-1）。
+        """
+        yield from self._iter_events(
+            input_text,
+            system_prompt_override=system_prompt_override,
+            allowed_tools=allowed_tools,
         )
-    
-    def _parse_output(self, text: str) -> Tuple[Optional[str], Optional[str]]:
-        """优先按 JSON 协议解析，失败时回退旧格式解析。"""
-        json_parsed = self._parse_json_output(text)
-        if json_parsed is not None:
-            return json_parsed
 
-        thought_match = re.search(r"Thought:\s*(.*?)(?:\nAction:|\Z)", text, re.DOTALL)
-        action_match = re.search(r"Action:\s*(.*)", text, re.DOTALL)
-        
-        thought = thought_match.group(1).strip() if thought_match else None
-        if action_match:
-            action = self._extract_first_action(action_match.group(1))
-        else:
-            action = self._extract_first_action(text)
-        
-        return thought, action
+    # ------------------------------------------------------------------ core loop
+    def _iter_events(
+        self,
+        input_text: str,
+        system_prompt_override: Optional[str] = None,
+        allowed_tools: Optional[List[str]] = None,
+    ):
+        """累积 messages + FC 主循环，逐步 yield 事件，最后 yield 一个 result 事件。"""
+        use_fc = self.llm.supports_function_calling()
+        source = "function_calling" if use_fc else "json_fallback"
 
-    def _invoke_react_llm(self, messages: list[dict[str, str]], **kwargs) -> str:
-        """Invoke the model with JSON preference and graceful fallback."""
-        llm_kwargs = dict(kwargs)
-        llm_kwargs.setdefault("temperature", 0.1)
+        self._refresh_system_message(input_text, system_prompt_override)
+        self._append_message(Message(input_text, "user"))
+        if self.trace_logger is not None:
+            self.trace_logger.log_event(
+                "message_written", {"role": "user", "content": input_text}
+            )
+
+        tool_schemas = self.tool_registry.build_tool_schemas(
+            include_finish=True, allowed=allowed_tools
+        )
+        steps: List[StepRecord] = []
+        step_index = 0
+
+        while step_index < self.max_steps:
+            step_index += 1
+            self._maybe_compress()
+            yield {"type": "step_start", "step": step_index}
+
+            try:
+                resp = self._invoke_fc(tool_schemas) if use_fc else self._invoke_fallback()
+            except Exception as exc:  # noqa: BLE001
+                if self.trace_logger is not None:
+                    self.trace_logger.log_event(
+                        "error", {"message": str(exc)}, step=step_index
+                    )
+                yield {"type": "error", "step": step_index, "message": str(exc)}
+                yield self._finalize_event(
+                    input_text, "抱歉，模型调用出现异常，请稍后重试。", steps,
+                    TERMINATED_LLM_EMPTY,
+                )
+                return
+
+            if self.trace_logger is not None:
+                self.trace_logger.log_event(
+                    "model_output",
+                    {
+                        "content": resp.content,
+                        "tool_calls": [
+                            {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                            for tc in resp.tool_calls
+                        ],
+                        "usage": resp.usage,
+                        "latency_ms": resp.latency_ms,
+                    },
+                    step=step_index,
+                )
+            if resp.content:
+                yield {"type": "thinking", "step": step_index, "content": resp.content}
+
+            # 无 tool_calls：兜底把 content 当最终答案（implicit finish）。
+            if not resp.tool_calls:
+                if resp.content is None or not str(resp.content).strip():
+                    if not steps:
+                        yield self._finalize_event(
+                            input_text, "抱歉，模型未能返回有效响应。", steps,
+                            TERMINATED_LLM_EMPTY,
+                        )
+                        return
+                    yield self._finalize_event(input_text, "", steps, TERMINATED_FINISHED)
+                    return
+                self._append_message(Message(resp.content, "assistant"))
+                step = StepRecord(
+                    index=step_index,
+                    role="assistant",
+                    thought=resp.content,
+                    source=source,
+                    raw_response=resp.content,
+                )
+                steps.append(step)
+                yield {"type": "step", "step": step_index, "record": step}
+                yield self._finalize_event(
+                    input_text, resp.content, steps, TERMINATED_FINISHED
+                )
+                return
+
+            # finish 调用。
+            finish_answer = self._extract_finish_answer(resp.tool_calls)
+            if finish_answer is not None:
+                self._append_message(
+                    Message(
+                        resp.content,
+                        "assistant",
+                        tool_calls=self._tool_calls_to_openai(resp.tool_calls),
+                    )
+                )
+                step = StepRecord(
+                    index=step_index,
+                    role="assistant",
+                    thought=resp.content,
+                    tool_calls=[
+                        {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                        for tc in resp.tool_calls
+                    ],
+                    source=source,
+                )
+                steps.append(step)
+                yield {"type": "step", "step": step_index, "record": step}
+                yield self._finalize_event(
+                    input_text, finish_answer, steps, TERMINATED_FINISHED
+                )
+                return
+
+            # 普通工具调用。
+            self._append_message(
+                Message(
+                    resp.content,
+                    "assistant",
+                    tool_calls=self._tool_calls_to_openai(resp.tool_calls),
+                )
+            )
+
+            step_tool_results: List[dict] = []
+            for tc in resp.tool_calls:
+                tool_input = self._parse_arguments(tc)
+                if self.trace_logger is not None:
+                    self.trace_logger.log_event(
+                        "tool_call",
+                        {"id": tc.id, "name": tc.name, "arguments": tc.arguments},
+                        step=step_index,
+                    )
+                yield {
+                    "type": "tool_call",
+                    "step": step_index,
+                    "id": tc.id,
+                    "name": tc.name,
+                    "arguments": tc.arguments,
+                }
+                tool_response = self.tool_registry.execute_tool(
+                    tc.name, tool_input, allowed=allowed_tools
+                )
+                truncated = self.truncator.truncate(tc.name, tool_response.text)
+                content_text = truncated["preview"]
+
+                if self.trace_logger is not None:
+                    if tool_response.error_info and (
+                        tool_response.error_info.get("code") == "CIRCUIT_OPEN"
+                    ):
+                        self.trace_logger.log_event(
+                            "circuit_open", {"tool": tc.name}, step=step_index
+                        )
+                    self.trace_logger.log_event(
+                        "tool_result",
+                        {
+                            "tool_call_id": tc.id,
+                            "name": tc.name,
+                            "status": tool_response.status.value,
+                            "content": content_text,
+                            "truncated": truncated["truncated"],
+                        },
+                        step=step_index,
+                    )
+
+                self._append_message(
+                    Message(content_text, "tool", tool_call_id=tc.id, name=tc.name)
+                )
+                result_entry = {
+                    "tool_call_id": tc.id,
+                    "name": tc.name,
+                    "status": tool_response.status.value,
+                    "content": content_text,
+                }
+                step_tool_results.append(result_entry)
+                yield {"type": "tool_result", "step": step_index, **result_entry}
+
+            step = StepRecord(
+                index=step_index,
+                role="assistant",
+                thought=resp.content,
+                tool_calls=[
+                    {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                    for tc in resp.tool_calls
+                ],
+                tool_results=step_tool_results,
+                source=source,
+                raw_response=resp.content,
+            )
+            steps.append(step)
+            yield {"type": "step", "step": step_index, "record": step}
+
+        yield self._finalize_event(
+            input_text,
+            "抱歉，我无法在限定步数内完成这个任务。",
+            steps,
+            TERMINATED_MAX_STEPS,
+        )
+
+    # ------------------------------------------------------------------ invoke
+    def _invoke_fc(self, tool_schemas: List[dict]) -> LLMToolResponse:
+        """FC 路径：原生返回 tool_calls。"""
+        openai_messages = [m.to_openai() for m in self.messages]
+        return self.llm.invoke_with_tools(openai_messages, tool_schemas, tool_choice="auto")
+
+    def _invoke_fallback(self) -> LLMToolResponse:
+        """回退路径：invoke 文本 + JSON 解析 → 构造成 ToolCall。"""
+        openai_messages = [m.to_openai() for m in self.messages]
+        llm_kwargs: dict[str, Any] = {"temperature": 0.1}
         try:
-            llm_kwargs.setdefault("response_format", {"type": "json_object"})
-            return self.llm.invoke(messages, **llm_kwargs)
+            text = self.llm.invoke(openai_messages, response_format={"type": "json_object"}, **llm_kwargs)
         except Exception:
-            llm_kwargs.pop("response_format", None)
-            return self.llm.invoke(messages, **llm_kwargs)
+            text = self.llm.invoke(openai_messages, **llm_kwargs)
 
-    def _parse_json_output(self, text: str) -> Optional[Tuple[Optional[str], Optional[str]]]:
-        """Parse structured JSON output from the model."""
+        parsed = self._parse_json_output(text or "")
+        if parsed is None:
+            # 无法解析成动作：把文本当作最终答案兜底。
+            return LLMToolResponse(content=text, tool_calls=[], model=self.llm.model)
+
+        thought, name, arguments = parsed
+        tc = ToolCall(id=f"call_{uuid.uuid4().hex[:12]}", name=name, arguments=json.dumps(arguments, ensure_ascii=False))
+        return LLMToolResponse(content=thought, tool_calls=[tc], model=self.llm.model)
+
+    # ------------------------------------------------------------------ finish
+    def _extract_finish_answer(self, tool_calls: List[ToolCall]) -> Optional[str]:
+        """若存在 finish 调用，返回其 answer；否则 None。"""
+        for tc in tool_calls:
+            if tc.name == FINISH_TOOL_NAME:
+                try:
+                    args = json.loads(tc.arguments or "{}")
+                except Exception:
+                    args = {}
+                answer = args.get("answer", "")
+                return str(answer) if answer is not None else ""
+        return None
+
+    # ------------------------------------------------------------------ helpers
+    def _append_message(self, message: Message) -> None:
+        self.messages.append(message)
+        self.history_manager.append(message)
+
+    def _refresh_system_message(
+        self, input_text: str, system_prompt_override: Optional[str] = None
+    ) -> None:
+        """每轮开始刷新首条 system 消息（角色 + 安全 + 画像 + 记忆 + working 摘要）。
+
+        P0-1：传入 ``system_prompt_override`` 时**直接用它**作为 system 内容，绕过
+        ``build_system_prompt`` 钩子（子代理隔离运行的正规入口）。
+        """
+        if system_prompt_override is not None:
+            content = system_prompt_override
+        else:
+            content = self.system_prompt or ""
+            if self.build_system_prompt is not None:
+                try:
+                    content = self.build_system_prompt(input_text)
+                except Exception:
+                    content = self.system_prompt or ""
+        if not self.llm.supports_function_calling() and self.fallback_prompt_suffix:
+            tools_desc = self.tool_registry.get_tools_description()
+            content = content + self.fallback_prompt_suffix.format(tools=tools_desc)
+
+        system_msg = Message(content, "system")
+        if self.messages and self.messages[0].role == "system":
+            self.messages[0] = system_msg
+        else:
+            self.messages.insert(0, system_msg)
+        self.history_manager.set_history(self.messages)
+
+    def _maybe_compress(self) -> None:
+        """token 超阈值时按整轮压缩历史。"""
+        try:
+            total = self.token_counter.count_messages(self.messages)
+        except Exception:
+            return
+        threshold = self.context_window * self.history_manager.compression_threshold
+        if total < threshold:
+            return
+        summary = self._build_compression_summary()
+        if self.history_manager.compress(summary):
+            self.messages = self.history_manager.get_history()
+            if self.trace_logger is not None:
+                self.trace_logger.log_event(
+                    "message_written",
+                    {"role": "summary", "compressed": True, "tokens_before": total},
+                )
+
+    def _build_compression_summary(self) -> str:
+        """构造压缩摘要：智能摘要（LLM）优先，否则统计摘要。"""
+        if self.smart_compression and self.get_summary_llm is not None:
+            llm = None
+            try:
+                llm = self.get_summary_llm()
+            except Exception:
+                llm = None
+            if llm is not None:
+                try:
+                    transcript = "\n".join(
+                        f"[{m.role}] {(m.content or '')[:400]}" for m in self.messages
+                    )
+                    prompt = [
+                        {"role": "system", "content": "请把以下多轮对话压缩为要点摘要，保留用户长期约束、关键决策与未完成事项，200 字内。"},
+                        {"role": "user", "content": transcript},
+                    ]
+                    return llm.invoke(prompt)
+                except Exception:
+                    pass
+        # 统计摘要。
+        rounds = self.history_manager.estimate_rounds()
+        tool_names: List[str] = []
+        for m in self.messages:
+            if m.role == "assistant" and m.tool_calls:
+                for tc in m.tool_calls:
+                    fn = (tc.get("function") or {}).get("name")
+                    if fn:
+                        tool_names.append(fn)
+        unique_tools = sorted(set(tool_names))
+        return (
+            f"共约 {rounds} 轮对话，调用工具 {len(tool_names)} 次"
+            f"（涉及：{', '.join(unique_tools) or '无'}）。此前细节已归档。"
+        )
+
+    @staticmethod
+    def _tool_calls_to_openai(tool_calls: List[ToolCall]) -> List[dict]:
+        """把 ToolCall 列表转为 OpenAI assistant.tool_calls 结构。"""
+        return [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.name, "arguments": tc.arguments or "{}"},
+            }
+            for tc in tool_calls
+        ]
+
+    @staticmethod
+    def _parse_arguments(tc: ToolCall) -> Any:
+        """解析工具入参：单参数 input 退化为字符串，其余保留 dict。"""
+        try:
+            args = json.loads(tc.arguments or "{}")
+        except Exception:
+            return tc.arguments or ""
+        if not isinstance(args, dict):
+            return args
+        if set(args.keys()) == {"input"}:
+            return args.get("input", "")
+        if not args:
+            return ""
+        return args
+
+    # ------------------------------------------------------------------ finalize
+    def _finalize_event(
+        self,
+        input_text: str,
+        final_answer: str,
+        steps: List[StepRecord],
+        terminated_reason: str,
+    ) -> dict:
+        """把 ``_finalize`` 的结果包装成生成器的 ``result`` 事件。"""
+        result = self._finalize(input_text, final_answer, steps, terminated_reason)
+        return {"type": "result", "result": result}
+
+    def _finalize(
+        self,
+        input_text: str,
+        final_answer: str,
+        steps: List[StepRecord],
+        terminated_reason: str,
+    ) -> ReActRunResult:
+        """终止前 Guardrails 复核，写历史并返回结果。"""
+        safe_answer = final_answer
+        if self.guardrails is not None and terminated_reason == TERMINATED_FINISHED:
+            profile = None
+            if self.get_guardrail_profile is not None:
+                try:
+                    profile = self.get_guardrail_profile()
+                except Exception:
+                    profile = None
+            try:
+                result = self.guardrails.check(final_answer, profile)
+                if result.action in {"rewrite", "block"}:
+                    safe_answer = result.safe_text
+                    if self.trace_logger is not None:
+                        self.trace_logger.log_event(
+                            "safety_block",
+                            {
+                                "action": result.action,
+                                "hits": result.hits,
+                                "reason": result.reason,
+                            },
+                        )
+            except Exception:
+                safe_answer = final_answer
+
+        # P0-2：对话历史收敛为 ``self.messages`` 单一源，不再冗余写基类 ``_history``。
+        # ``_get_completed_turns`` / ``_recent_dialogue_window`` 改为从 ``messages`` 派生。
+        # 注意：finish 场景下末条 assistant 已在主循环写入 messages（可能是 tool_calls-only），
+        # 这里把经 guardrails 复核后的 ``safe_answer`` 作为该回合面向用户的最终文本补记，
+        # 使 messages 中"最后一条 user 之后存在可读 assistant 文本"，供轮次派生与后续续接。
+        if safe_answer:
+            self._append_message(Message(safe_answer, "assistant"))
+        return ReActRunResult(
+            final_answer=safe_answer,
+            steps=steps,
+            terminated_reason=terminated_reason,
+        )
+
+    # ------------------------------------------------------------------ json fallback parse
+    def _parse_json_output(self, text: str):
+        """解析回退路径 JSON → (thought, name, arguments)；无效返回 None。"""
         payload = self._extract_json_object(text)
         if payload is None:
             return None
@@ -305,43 +577,36 @@ class ReActAgent(Agent):
             data = json.loads(payload)
         except Exception:
             return None
-
         if not isinstance(data, dict):
             return None
         thought = str(data.get("thought", "")).strip() or None
-        action_data = data.get("action")
-        if not isinstance(action_data, dict):
-            return thought, None
-
-        action_type = str(action_data.get("type", "")).strip().lower()
-        if action_type == "tool":
-            tool_name = str(action_data.get("name", "")).strip()
-            tool_input = action_data.get("input", "")
-            if not tool_name:
-                return thought, None
-            if tool_input is None:
-                tool_input = ""
-            return thought, f"{tool_name}[{tool_input}]"
+        action = data.get("action")
+        if not isinstance(action, dict):
+            return None
+        action_type = str(action.get("type", "")).strip().lower()
         if action_type == "finish":
-            answer = action_data.get("answer", "")
-            if answer is None:
-                answer = ""
-            return thought, f"Finish[{answer}]"
-        return thought, None
+            answer = action.get("answer", "")
+            return thought, FINISH_TOOL_NAME, {"answer": "" if answer is None else str(answer)}
+        if action_type == "tool":
+            name = str(action.get("name", "")).strip()
+            if not name:
+                return None
+            tool_input = action.get("input", "")
+            return thought, name, {"input": "" if tool_input is None else tool_input}
+        return None
 
-    def _extract_json_object(self, text: str) -> Optional[str]:
-        """Extract the first balanced JSON object from text."""
+    @staticmethod
+    def _extract_json_object(text: str) -> Optional[str]:
+        """从文本抽取第一个平衡的 JSON 对象。"""
         if not text:
             return None
         cleaned = text.strip()
         if cleaned.startswith("```"):
             cleaned = re.sub(r"^```(?:json)?", "", cleaned).strip()
             cleaned = re.sub(r"```$", "", cleaned).strip()
-
         start = cleaned.find("{")
         if start == -1:
             return None
-
         depth = 0
         in_string = False
         escape = False
@@ -356,7 +621,6 @@ class ReActAgent(Agent):
                 elif char == '"':
                     in_string = False
                 continue
-
             if char == '"':
                 in_string = True
             elif char == "{":
@@ -367,90 +631,6 @@ class ReActAgent(Agent):
                     return "".join(collected).strip()
         return None
 
-    def _extract_action_source(self, text: str) -> str:
-        """Return the raw text region from which action extraction was attempted."""
-        action_match = re.search(r"Action:\s*(.*)", text, re.DOTALL)
-        if action_match:
-            return action_match.group(1).strip()
-        return text.strip()
-    
-    def _parse_action(self, action_text: str) -> Tuple[Optional[str], Optional[str]]:
-        """解析行动文本，提取工具名称和输入"""
-        match = re.match(r"(\w+)\[(.*)\]\s*\Z", action_text, re.DOTALL)
-        if match:
-            return match.group(1), match.group(2)
-        return None, None
-    
-    def _parse_action_input(self, action_text: str) -> str:
-        """解析行动输入"""
-        match = re.match(r"\w+\[(.*)\]\s*\Z", action_text, re.DOTALL)
-        return match.group(1) if match else ""
-
-    def _extract_first_action(self, action_block: str) -> Optional[str]:
-        """从 Action 段中提取第一个合法动作，忽略后续多余文本。"""
-        if not action_block:
-            return None
-
-        normalized = action_block.strip()
-        lines = [line.strip() for line in normalized.splitlines() if line.strip()]
-
-        for line in lines:
-            candidate = line
-            if candidate.startswith("- "):
-                candidate = candidate[2:].strip()
-            candidate = candidate.strip("`").strip()
-            extracted = self._extract_action_from_text(candidate)
-            if extracted:
-                return extracted
-
-        # 回退：兼容模型把 Finish[...] 或 tool[...] 直接写在多行块开头
-        stripped = normalized.strip("`").strip()
-        return self._extract_action_from_text(stripped)
-
-    def _extract_action_from_text(self, text: str) -> Optional[str]:
-        """Extract the first balanced action starting at the beginning of text."""
-        if not text:
-            return None
-        match = re.match(r"^([A-Za-z0-9_]+)\[", text)
-        if not match:
-            return None
-        return self._extract_bracketed_action(text, match.group(1))
-
-    def _extract_bracketed_action(self, text: str, action_name: str) -> Optional[str]:
-        """Extract one balanced `name[...]` action without regex backtracking."""
-        prefix = f"{action_name}["
-        if not text.startswith(prefix):
-            return None
-
-        depth = 0
-        collected: list[str] = []
-        for char in text:
-            collected.append(char)
-            if char == "[":
-                depth += 1
-            elif char == "]":
-                depth -= 1
-                if depth == 0:
-                    return "".join(collected).strip().rstrip("`").strip()
-
-        return None
-
     def build_additional_context(self, input_text: str) -> str:
-        """Build optional prompt context injected before each reasoning step."""
-        return "暂无附加上下文。"
-
-    def _finalize_run(
-        self,
-        input_text: str,
-        final_answer: str,
-        steps: List[StepRecord],
-        terminated_reason: str,
-    ) -> ReActRunResult:
-        """保存历史并返回结构化执行结果。"""
-        self.add_message(Message(input_text, "user"))
-        self.add_message(Message(final_answer, "assistant"))
-        return ReActRunResult(
-            final_answer=final_answer,
-            steps=steps,
-            terminated_reason=terminated_reason,
-        )
+        """兼容旧接口占位（新内核用 build_system_prompt 注入 system 消息）。"""
+        return ""

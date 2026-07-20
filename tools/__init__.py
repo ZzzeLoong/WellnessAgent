@@ -1,18 +1,35 @@
-"""工具系统"""
+"""工具系统（惰性加载）。"""
 
 from .base import Tool, ToolParameter
 from .registry import ToolRegistry, global_registry
+from .response import ToolResponse, ToolStatus, ToolErrorCode
+from .circuit_breaker import CircuitBreaker
 
-# 内置工具
-from .builtin.search_tool import SearchTool
-from .builtin.calculator import CalculatorTool
-from .builtin.memory_tool import MemoryTool
-from .builtin.rag_tool import RAGTool
-from .builtin.note_tool import NoteTool
-from .builtin.terminal_tool import TerminalTool
+# 惰性加载内置工具与高级功能，避免拉起完整依赖链。
+_lazy_map = {
+    "SearchTool": ".builtin.search_tool:SearchTool",
+    "CalculatorTool": ".builtin.calculator:CalculatorTool",
+    "MemoryTool": ".builtin.memory_tool:MemoryTool",
+    "RAGTool": ".builtin.rag_tool:RAGTool",
+    "NoteTool": ".builtin.note_tool:NoteTool",
+    "TerminalTool": ".builtin.terminal_tool:TerminalTool",
+    "ToolChain": ".chain:ToolChain",
+    "ToolChainManager": ".chain:ToolChainManager",
+    "create_research_chain": ".chain:create_research_chain",
+    "create_simple_chain": ".chain:create_simple_chain",
+}
 
-# 高级功能
-from .chain import ToolChain, ToolChainManager, create_research_chain, create_simple_chain
+
+def __getattr__(name):
+    if name in _lazy_map:
+        module_path, attr = _lazy_map[name].rsplit(":", 1)
+        import importlib
+        mod = importlib.import_module(module_path, __package__)
+        obj = getattr(mod, attr)
+        globals()[name] = obj
+        return obj
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     # 基础工具系统
@@ -20,81 +37,20 @@ __all__ = [
     "ToolParameter",
     "ToolRegistry",
     "global_registry",
-
-    # 内置工具
+    "ToolResponse",
+    "ToolStatus",
+    "ToolErrorCode",
+    "CircuitBreaker",
+    # 内置工具（惰性）
     "SearchTool",
     "CalculatorTool",
     "MemoryTool",
     "RAGTool",
     "NoteTool",
     "TerminalTool",
-
-    # 工具链功能
+    # 工具链功能（惰性）
     "ToolChain",
     "ToolChainManager",
     "create_research_chain",
     "create_simple_chain",
 ]
-
-try:
-    from .builtin.protocol_tools import MCPTool, A2ATool, ANPTool
-
-    __all__.extend(["MCPTool", "A2ATool", "ANPTool"])
-except Exception:
-    pass
-
-try:
-    from .builtin.bfcl_evaluation_tool import BFCLEvaluationTool
-
-    __all__.append("BFCLEvaluationTool")
-except Exception:
-    pass
-
-try:
-    from .builtin.gaia_evaluation_tool import GAIAEvaluationTool
-
-    __all__.append("GAIAEvaluationTool")
-except Exception:
-    pass
-
-try:
-    from .builtin.llm_judge_tool import LLMJudgeTool
-
-    __all__.append("LLMJudgeTool")
-except Exception:
-    pass
-
-try:
-    from .builtin.win_rate_tool import WinRateTool
-
-    __all__.append("WinRateTool")
-except Exception:
-    pass
-
-try:
-    from .builtin.rl_training_tool import RLTrainingTool
-
-    __all__.append("RLTrainingTool")
-except Exception:
-    pass
-
-try:
-    from .async_executor import (
-        AsyncToolExecutor,
-        run_parallel_tools,
-        run_batch_tool,
-        run_parallel_tools_sync,
-        run_batch_tool_sync,
-    )
-
-    __all__.extend(
-        [
-            "AsyncToolExecutor",
-            "run_parallel_tools",
-            "run_batch_tool",
-            "run_parallel_tools_sync",
-            "run_batch_tool_sync",
-        ]
-    )
-except Exception:
-    pass

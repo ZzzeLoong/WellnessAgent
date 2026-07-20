@@ -21,10 +21,10 @@ def score_replanning(task: BenchmarkTask, run: BenchmarkRunResult) -> tuple[floa
 
     required_tools = set(task.expected.must_use_tools_any_of)
     used_tools = {
-        step.tool_name
+        name
         for turn in run.turn_results[1:]
         for step in turn.steps
-        if step.tool_name
+        for name in step.tool_names
     }
     tool_condition = True if not required_tools else bool(required_tools & used_tools)
 

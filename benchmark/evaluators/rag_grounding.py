@@ -25,10 +25,11 @@ def score_rag_invocation(
 
     kb_tools_used = sorted(
         {
-            step.tool_name
+            name
             for turn in run.turn_results
             for step in turn.steps
-            if step.tool_name in KB_TOOL_NAMES
+            for name in step.tool_names
+            if name in KB_TOOL_NAMES
         }
     )
     score = 1.0 if kb_tools_used else 0.0

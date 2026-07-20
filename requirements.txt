@@ -1,6 +1,7 @@
 openai
 python-dotenv
 pydantic
+tiktoken
 requests
 qdrant-client
 numpy

@@ -38,6 +38,9 @@ dist/
 build/
 *.log
 
+# 运行时产物（trace/session/tool-output/kb 种子标记）
+logs/
+
 docs/
 
 # benchmark/reports/*

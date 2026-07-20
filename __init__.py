@@ -13,33 +13,41 @@ logging.getLogger("neo4j").setLevel(logging.WARNING)
 logging.getLogger("neo4j.notifications").setLevel(logging.WARNING)
 
 
-# 核心组件
-from .core.llm import HelloAgentsLLM
-from .core.config import Config
-from .core.message import Message
-from .core.exceptions import HelloAgentsException
+def __getattr__(name):
+    """惰性加载：仅在属性被访问时触发 import，避免 import 时拉起完整依赖链。"""
+    _lazy = {
+        "HelloAgentsLLM": ".core.llm:HelloAgentsLLM",
+        "Config": ".core.config:Config",
+        "Message": ".core.message:Message",
+        "HelloAgentsException": ".core.exceptions:HelloAgentsException",
+        "ReActAgent": ".agents.react_agent:ReActAgent",
+        "ToolRegistry": ".tools.registry:ToolRegistry",
+        "global_registry": ".tools.registry:global_registry",
+        "SearchTool": ".tools.builtin.search_tool:SearchTool",
+        "search": ".tools.builtin.search_tool:search",
+        "CalculatorTool": ".tools.builtin.calculator:CalculatorTool",
+        "calculate": ".tools.builtin.calculator:calculate",
+        "ToolChain": ".tools.chain:ToolChain",
+        "ToolChainManager": ".tools.chain:ToolChainManager",
+    }
+    if name in _lazy:
+        module_path, attr = _lazy[name].rsplit(":", 1)
+        import importlib
+        mod = importlib.import_module(module_path, __package__)
+        obj = getattr(mod, attr)
+        globals()[name] = obj
+        return obj
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-# Agent实现
-from .agents.react_agent import ReActAgent
-
-
-# 工具系统
-from .tools.registry import ToolRegistry, global_registry
-from .tools.builtin.search_tool import SearchTool, search
-from .tools.builtin.calculator import CalculatorTool, calculate
-from .tools.chain import ToolChain, ToolChainManager
 
 __all__ = [
-
     # 核心组件
     "HelloAgentsLLM",
     "Config",
     "Message",
     "HelloAgentsException",
-
     # Agent范式
     "ReActAgent",
-
     # 工具系统
     "ToolRegistry",
     "global_registry",
@@ -50,11 +58,4 @@ __all__ = [
     "ToolChain",
     "ToolChainManager",
 ]
-
-try:
-    from .tools.async_executor import AsyncToolExecutor
-
-    __all__.append("AsyncToolExecutor")
-except Exception:
-    pass
 

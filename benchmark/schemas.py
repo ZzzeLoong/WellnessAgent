@@ -56,16 +56,25 @@ class BenchmarkTask(BaseModel):
 
 
 class BenchmarkStep(BaseModel):
-    """Normalized execution step."""
+    """Normalized execution step (new ReAct StepRecord structure).
 
-    step_index: int | None = None
+    One assistant step may issue multiple tool calls; ``tool_calls`` and
+    ``tool_results`` are aligned lists. Evaluators use :meth:`tool_names` to
+    read invoked tool names regardless of arity.
+    """
+
+    index: int | None = None
+    role: str | None = None
     thought: str | None = None
-    action_text: str | None = None
-    tool_name: str | None = None
-    tool_input: str | None = None
-    observation: str | None = None
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    tool_results: list[dict[str, Any]] = Field(default_factory=list)
+    source: str | None = None
     raw_response: str | None = None
-    action_debug: str | None = None
+
+    @property
+    def tool_names(self) -> list[str]:
+        """Names of tools invoked in this step (from ``tool_calls``)."""
+        return [str(tc.get("name")) for tc in self.tool_calls if tc.get("name")]
 
 
 class BenchmarkTurnResult(BaseModel):
