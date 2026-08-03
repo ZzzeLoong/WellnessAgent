@@ -121,6 +121,11 @@ class MetricScores(BaseModel):
     knowledge_coverage_score: float = 0.0
     rag_invocation_score: float = 0.0
     tool_usage_score: float = 0.0
+    # Phase 3.0-5 新增诊断指标（不计入 total_score）。
+    constraint_adherence_score: float = 0.0
+    subtask_coverage_score: float = 0.0
+    orchestration_visible_score: float = 0.0
+    safety_score: float = 0.0
     total_score: float = 0.0
 
 

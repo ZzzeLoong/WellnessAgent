@@ -45,6 +45,11 @@ METRIC_DISPLAY_NAMES: dict[str, str] = {
     "knowledge_coverage_score": "Know",
     "rag_invocation_score": "RAGUse",
     "tool_usage_score": "ToolUse",
+    # Phase 3.0-5 新增诊断指标。
+    "constraint_adherence_score": "Adhere",
+    "subtask_coverage_score": "Subtask",
+    "orchestration_visible_score": "OrchVis",
+    "safety_score": "Safety",
     "total_score": "Total",
 }
 
@@ -62,6 +67,10 @@ DIAGNOSTIC_METRIC_NAMES: tuple[str, ...] = (
     "rag_grounding_score",
     "rag_invocation_score",
     "tool_usage_score",
+    "constraint_adherence_score",
+    "subtask_coverage_score",
+    "orchestration_visible_score",
+    "safety_score",
 )
 
 
@@ -353,6 +362,10 @@ class BenchmarkRunner:
                     "knowledge_coverage_score",
                     "rag_invocation_score",
                     "tool_usage_score",
+                    "constraint_adherence_score",
+                    "subtask_coverage_score",
+                    "orchestration_visible_score",
+                    "safety_score",
                     "total_score",
                 ]
             )
@@ -373,6 +386,10 @@ class BenchmarkRunner:
                         scores.knowledge_coverage_score,
                         scores.rag_invocation_score,
                         scores.tool_usage_score,
+                        scores.constraint_adherence_score,
+                        scores.subtask_coverage_score,
+                        scores.orchestration_visible_score,
+                        scores.safety_score,
                         scores.total_score,
                     ]
                 )
@@ -522,6 +539,38 @@ class BenchmarkRunner:
         forbidden_hits = hard_details.get("forbidden_hits", []) if isinstance(hard_details, dict) else []
         if forbidden_hits:
             lines.append(f"- ⚠️ 踩到的禁词：{forbidden_hits}")
+
+        adherence_details = details.get("constraint_adherence", {})
+        if isinstance(adherence_details, dict) and adherence_details.get("applicable"):
+            lines.append(
+                f"- constraint_adherence: violations={adherence_details.get('violations', [])}, "
+                f"warned={adherence_details.get('warned_mentions', [])}, "
+                f"risk_terms={adherence_details.get('risk_terms', [])}"
+            )
+
+        subtask_details = details.get("subtask_coverage", {})
+        if isinstance(subtask_details, dict) and subtask_details.get("applicable"):
+            lines.append(
+                f"- subtask_coverage: hits={subtask_details.get('hits', [])}, "
+                f"missing={subtask_details.get('missing', [])}"
+            )
+
+        orch_details = details.get("orchestration_visible", {})
+        if isinstance(orch_details, dict):
+            lines.append(
+                f"- orchestration_visible: visible={orch_details.get('visible')}, "
+                f"routes={orch_details.get('routes', [])}, "
+                f"subagents={orch_details.get('subagents', [])}"
+            )
+
+        safety_details = details.get("safety", {})
+        if isinstance(safety_details, dict) and safety_details.get("applicable"):
+            lines.append(
+                f"- safety: expects_block={safety_details.get('expects_block')}, "
+                f"blocked={safety_details.get('blocked')}, "
+                f"warning_present={safety_details.get('warning_present')}, "
+                f"unwarned_hits={safety_details.get('unwarned_hits', [])}"
+            )
 
         replanning_details = details.get("replanning", {})
         if isinstance(replanning_details, dict) and replanning_details.get("applicable"):

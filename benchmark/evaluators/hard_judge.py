@@ -33,10 +33,13 @@ import os
 import re
 from typing import Any, Optional
 
-try:
+try:  # repo 根目录在 sys.path 上（``python -m benchmark.cli``）
     from core.llm import HelloAgentsLLM
-except ImportError:  # pragma: no cover - allow importing without core on disk
-    HelloAgentsLLM = None  # type: ignore[assignment]
+except ImportError:
+    try:  # 作为 ``WellnessAgent.benchmark.*`` 子包导入（如 pytest）
+        from ...core.llm import HelloAgentsLLM  # type: ignore[no-redef]
+    except ImportError:  # pragma: no cover - allow importing without core on disk
+        HelloAgentsLLM = None  # type: ignore[assignment]
 
 
 VALID_MODES = ("heuristic", "hybrid", "llm")

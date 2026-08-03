@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.llm import HelloAgentsLLM
+try:  # repo 根目录在 sys.path 上（``python -m benchmark.cli``）
+    from core.llm import HelloAgentsLLM
+except ImportError:  # 作为 ``WellnessAgent.benchmark.*`` 子包导入（如 pytest）
+    from ...core.llm import HelloAgentsLLM  # type: ignore[no-redef]
 
 from ..schemas import BenchmarkTurnResult
 from .base import BaselineAdapter

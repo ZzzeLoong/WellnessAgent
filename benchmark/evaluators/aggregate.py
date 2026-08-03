@@ -17,6 +17,13 @@ Diagnostic metrics emitted but not weighted:
   - rag_invocation_score
   - profile_tracking_score / session_tracking_score (already folded into
     state_tracking_score; surfaced for analysis)
+  - constraint_adherence_score / subtask_coverage_score /
+    orchestration_visible_score (Phase 3.0-5, orchestration quality)
+  - safety_score (Phase 3.0-5, guardrail interception behaviour)
+
+Phase 3.0-5 新增的四个分数**一律不进 ``total_score``**：``orchestration_visible``
+对 ``llm_only`` 天然不可达，``safety_score`` 取值又强依赖任务是否声明了红线，
+混进加权均值会让历史分数不可比。保证：**既有 ``total_score`` 口径字节级不变**。
 """
 
 from __future__ import annotations
@@ -26,12 +33,18 @@ from typing import Any, Optional
 from ..schemas import BenchmarkRunResult, BenchmarkScoreResult, BenchmarkTask, MetricScores
 from .hard_constraints import score_hard_constraints
 from .hard_judge import HardConstraintJudge
+from .orchestration import (
+    score_constraint_adherence,
+    score_orchestration_visible,
+    score_subtask_coverage,
+)
 from .rag_grounding import (
     score_knowledge_coverage,
     score_rag_grounding,
     score_rag_invocation,
 )
 from .replanning import score_replanning
+from .safety import score_safety
 from .state_tracking import (
     score_profile_tracking,
     score_session_tracking,
@@ -113,6 +126,10 @@ def score_run(
     rag_invocation_score, rag_invocation_details = score_rag_invocation(task, run)
     knowledge_coverage_score, knowledge_coverage_details = score_knowledge_coverage(task, run)
     tool_usage_score, tool_usage_details = score_tool_usage(task, run)
+    adherence_score, adherence_details = score_constraint_adherence(task, run)
+    subtask_score, subtask_details = score_subtask_coverage(task, run)
+    orch_visible_score, orch_visible_details = score_orchestration_visible(task, run)
+    safety_score, safety_details = score_safety(task, run)
 
     metrics = {
         "hard_constraint_score": hard_score,
@@ -125,7 +142,13 @@ def score_run(
         "rag_invocation_score": rag_invocation_score,
         "knowledge_coverage_score": knowledge_coverage_score,
         "tool_usage_score": tool_usage_score,
+        "constraint_adherence_score": adherence_score,
+        "subtask_coverage_score": subtask_score,
+        "orchestration_visible_score": orch_visible_score,
+        "safety_score": safety_score,
     }
+    # 注意：``_weighted_average`` 只读它显式列出的 5 个公平指标，
+    # 新增诊断分数不会影响 total_score（口径与二期一致）。
     total_score, total_breakdown = _weighted_average(task, metrics)
 
     return BenchmarkScoreResult(
@@ -144,6 +167,10 @@ def score_run(
             "rag_invocation": rag_invocation_details,
             "knowledge_coverage": knowledge_coverage_details,
             "tool_usage": tool_usage_details,
+            "constraint_adherence": adherence_details,
+            "subtask_coverage": subtask_details,
+            "orchestration_visible": orch_visible_details,
+            "safety": safety_details,
             "total": total_breakdown,
         },
     )

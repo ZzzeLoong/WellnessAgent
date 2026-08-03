@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from wellnessagent import WellnessPlanningAgent
+try:  # repo 根目录在 sys.path 上（``python -m benchmark.cli``）
+    from wellnessagent import WellnessPlanningAgent
+except ImportError:  # 作为 ``WellnessAgent.benchmark.*`` 子包导入（如 pytest）
+    from ...wellnessagent import WellnessPlanningAgent  # type: ignore[no-redef]
 
 from ..schemas import BenchmarkStep, BenchmarkTurnResult
 from .base import BaselineAdapter
@@ -66,6 +69,18 @@ class WellnessAgentBaseline(BaselineAdapter):
         assert self.agent is not None
         result = self.agent.chat_with_trace(user_message)
         steps = [BenchmarkStep.model_validate(step) for step in result.get("steps", [])]
+        metadata: dict[str, Any] = {
+            "baseline": self.name,
+            "tool_groups": list(self._enabled_groups),
+        }
+        # P3.0-5：把 chat_with_trace 的可选字段透传给 evaluator。
+        # ``orchestration`` 是 ``orchestration_visible`` 指标的唯一证据来源；
+        # ``safety`` 供 safety evaluator 判定拦截/误拦。二者仅在对应功能开启时存在，
+        # 缺省不写入 metadata，保持既有 raw_runs JSON 形态不变。
+        for optional_key in ("orchestration", "safety", "confirmation"):
+            value = result.get(optional_key)
+            if value is not None:
+                metadata[optional_key] = value
         return BenchmarkTurnResult(
             turn_index=turn_index,
             user_message=user_message,
@@ -73,10 +88,7 @@ class WellnessAgentBaseline(BaselineAdapter):
             terminated_reason=result.get("terminated_reason", "unknown"),
             steps=steps,
             state=result.get("state", {}),
-            metadata={
-                "baseline": self.name,
-                "tool_groups": list(self._enabled_groups),
-            },
+            metadata=metadata,
         )
 
     def get_final_state(self) -> dict[str, Any]:
