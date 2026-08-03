@@ -176,3 +176,86 @@ SUBAGENT_SAFETY_PROMPT = """你是安全审查子代理。你的职责：对规�
 ```json
 {"risk": true 或 false, "hits": ["命中的风险词"], "advice": "具体修改建议"}
 ```"""
+
+
+# =========================================================================== #
+# 三期 R9：结构化识餐（方案 §2.6）。
+# 这是**业务层**的一次独立 VLM 调用，产出可比对/可入库的结构化结果；
+# 图片本身仍会进 messages，主循环里模型可自行再看图回答追问。
+# =========================================================================== #
+
+# --- 识餐 system prompt --------------------------------------------------- #
+VISION_FOOD_RECOGNITION_PROMPT = """你是食物图像识别专家。用户会给你一张或多张餐食照片，请识别其中的食物并估算营养。
+
+要求：
+1. 只描述你**在图中真实看到**的食物，不要凭常识补充没看到的东西；看不清就降低 confidence。
+2. `ingredients_guess` 要尽量列出**可能的隐藏食材与调料**（如花生酱、奶油、鱼露、坚果碎），
+   这一项用于过敏原比对，宁可多列可疑项，也不要漏掉。
+3. 热量与宏量营养素给**区间**而非确定值，单位分别为千卡与克。
+4. 无法判断的字段用 null 或空列表，不要编造。
+
+只输出一个 JSON 对象，不要输出 JSON 之外的任何文本或 Markdown 代码块：
+{
+  "items": [{"name": "食物名", "confidence": 0.0~1.0, "portion": "份量描述"}],
+  "ingredients_guess": ["可能的食材或调料"],
+  "calories_range": [下限, 上限],
+  "macros": {"protein_g": [下限, 上限], "carb_g": [下限, 上限], "fat_g": [下限, 上限]},
+  "summary": "一句话描述这份餐食（20 字内）"
+}"""
+
+
+# --- 识餐 user 侧文字（图片 part 由调用方追加） ----------------------------- #
+def vision_food_recognition_task(profile_summary: str = "") -> str:
+    """识餐这一轮的文字提示。
+
+    带上画像摘要能让模型更主动地留意用户关心的食材；但**风险判定不依赖模型**——
+    命中与否由 ``safety_rules.rule_hits`` 对结构化结果做确定性比对得出，
+    模型漏说也不会漏判（方案 §2.6 安全联动）。
+    """
+    if profile_summary.strip():
+        return (
+            "请识别这张餐食照片。以下是用户画像，识别时请特别留意其中提到的"
+            "过敏原与忌口食材是否可能出现在图中：\n\n"
+            f"{profile_summary.strip()}\n\n"
+            "按要求的 JSON 结构输出。"
+        )
+    return "请识别这张餐食照片，按要求的 JSON 结构输出。"
+
+
+# --- 命中风险时注入本轮 system 的警示块（提示层） -------------------------- #
+def vision_risk_warning_block(hits: list[str], summary: str = "") -> str:
+    """把识餐命中的风险词渲染为显式警示块（方案 §2.6 提示层）。
+
+    这是安全三层联动的**第一层**：让模型在生成答案时就知道图里有雷。
+    第二层是 HITL 确认（``vision_risk_hits`` 进 ``OrchestrationContext``），
+    第三层是 ``DietGuardrails._finalize`` 的硬红线兜底——三层互不替代。
+    """
+    if not hits:
+        return ""
+    lines = [
+        "",
+        "### ⚠️ 图片安全警示（系统检测，优先级高于一般建议）",
+        f"图中疑似含用户过敏原/忌口：{'、'.join(hits)}。",
+        "你必须：(1) 在回答开头明确指出这一风险；(2) 不得建议用户食用该食物；"
+        "(3) 给出安全替代方案。",
+    ]
+    if summary.strip():
+        lines.insert(2, f"识别摘要：{summary.strip()}")
+    return "\n".join(lines)
+
+
+# --- 无风险时的识餐结果注入块 ---------------------------------------------- #
+def vision_context_block(summary: str, items: list[str] | None = None) -> str:
+    """把识餐结果作为上下文注入本轮 system（无风险时也要注入）。
+
+    让模型的答案与结构化识别结果保持一致，避免「卡片说是拉面、正文说是沙拉」。
+    """
+    if not summary.strip() and not items:
+        return ""
+    lines = ["", "### 本轮图片识别结果（系统预处理）"]
+    if summary.strip():
+        lines.append(f"摘要：{summary.strip()}")
+    if items:
+        lines.append(f"识别到的食物：{'、'.join(items)}")
+    lines.append("回答时请与上述识别结果保持一致；如你看图后判断识别有误，以你的判断为准并说明。")
+    return "\n".join(lines)

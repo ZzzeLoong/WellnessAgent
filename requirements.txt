@@ -10,6 +10,23 @@ sentence-transformers
 markitdown
 fastapi
 uvicorn
+# R9 /api/upload 走 multipart/form-data，FastAPI 的 File/Form 依赖它。
+python-multipart
 torch
 torchvision
 torchaudio
+
+# ---------------------------------------------------------------------------
+# 可选依赖（Optional extras）—— 不安装也能跑全量测试与默认部署
+# ---------------------------------------------------------------------------
+# MCP Server / Client（R13 对外暴露能力；protocols/mcp 已软依赖化，
+# 缺失时 import 正常、仅在实例化 MCPServer/MCPClient 时报友好错误）：
+#   pip install "fastmcp>=2.0.0"
+#
+# 感知记忆的多模态编码器（P3.0-1 懒加载 + 默认关闭；
+# 需同时设置 WELLNESS_CLIP_ENABLED=true / WELLNESS_CLAP_ENABLED=true 才会加载）：
+#   pip install transformers pillow      # CLIP 图像编码
+#   pip install transformers librosa     # CLAP 音频编码
+#
+# 测试：
+#   pip install pytest

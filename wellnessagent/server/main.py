@@ -2,12 +2,17 @@
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
+from ...core.media_store import (
+    MediaStoreError,
+    MediaTooLargeError,
+    UnsupportedMediaTypeError,
+)
 from ..schemas import WellnessProfile
 from .deps import (
     apply_profile,
@@ -15,6 +20,7 @@ from .deps import (
     ensure_knowledgebase_seeded,
     get_agent,
     get_frontend_dist,
+    get_media_store,
     list_knowledgebase_files,
     list_sessions,
     list_traces,
@@ -22,6 +28,7 @@ from .deps import (
     read_knowledgebase_file,
     read_metrics,
     read_trace,
+    vision_enabled,
 )
 from .schemas import ChatRequest, NewSessionRequest, ProfileRequest, UserScopedRequest
 
@@ -53,7 +60,11 @@ def chat(payload: ChatRequest) -> dict:
     agent = get_agent(payload.user_id)
     agent.select_session(payload.session_id)
     confirmation = payload.confirmation.model_dump() if payload.confirmation else None
-    return agent.chat_with_trace(payload.message, confirmation=confirmation)
+    return agent.chat_with_trace(
+        payload.message,
+        confirmation=confirmation,
+        attachments=[a.model_dump() for a in payload.attachments],
+    )
 
 
 @app.post("/api/chat/stream")
@@ -63,9 +74,12 @@ def chat_stream(payload: ChatRequest) -> StreamingResponse:
     agent = get_agent(payload.user_id)
     agent.select_session(payload.session_id)
     confirmation = payload.confirmation.model_dump() if payload.confirmation else None
+    attachments = [a.model_dump() for a in payload.attachments]
 
     def event_source():
-        for event in agent.chat_stream(payload.message, confirmation=confirmation):
+        for event in agent.chat_stream(
+            payload.message, confirmation=confirmation, attachments=attachments
+        ):
             yield event.to_sse()
 
     return StreamingResponse(
@@ -153,6 +167,61 @@ def profile(payload: ProfileRequest) -> dict[str, str]:
 def clear_memory(payload: UserScopedRequest) -> dict[str, str]:
     """Clear only the current user's memories."""
     return clear_user_memories(payload.user_id)
+
+
+# ---------------------------------------------------------------- media (R9)
+@app.post("/api/upload")
+async def upload_media(
+    user_id: str = Form("web_user"),
+    file: UploadFile = File(...),
+) -> dict:
+    """Upload one image and return its ``file_id`` (R9, 方案 §2.5).
+
+    多模态关闭时返回 501。图片原始字节落盘到 ``MediaStore``，
+    调用方之后只需在 ``/api/chat`` 的 ``attachments`` 里带 ``file_id``——
+    base64 永远不会进入请求体、messages 或 SessionStore。
+    """
+    if not vision_enabled():
+        raise HTTPException(
+            status_code=501,
+            detail="多模态未启用。请设置 WELLNESS_VLM_ENABLED=true 后重试。",
+        )
+    data = await file.read()
+    try:
+        ref = get_media_store().save(
+            user_id, file.filename or "upload", data, declared_mime=file.content_type
+        )
+    except UnsupportedMediaTypeError as exc:
+        raise HTTPException(status_code=415, detail=str(exc)) from exc
+    except MediaTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except MediaStoreError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "file_id": ref.file_id,
+        "mime": ref.mime,
+        "size_bytes": ref.size_bytes,
+        "width": ref.width,
+        "height": ref.height,
+        "preview_url": ref.preview_url,
+    }
+
+
+@app.get("/api/media/{file_id}")
+def get_media(file_id: str, user_id: str = "web_user") -> Response:
+    """Serve an uploaded image (前端气泡渲染用)，按 ``user_id`` 校验归属。"""
+    store = get_media_store()
+    ref = store.get(file_id, user_id)
+    if ref is None:
+        raise HTTPException(status_code=404, detail="Media not found")
+    data = store.read_bytes(file_id, user_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Media not found")
+    return Response(
+        content=data,
+        media_type=ref.mime,
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 frontend_dist = get_frontend_dist()

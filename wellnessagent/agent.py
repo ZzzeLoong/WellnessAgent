@@ -14,23 +14,29 @@ from .service import WellnessAgentService
 from .orchestrator import Orchestrator, OrchestrationContext, ROUTE_SIMPLE
 from .subagents import make_subagent_factory
 from . import safety_rules
-from ..core.hitl import (
-    ConfirmationDecision,
-    DECISION_APPROVE,
-    DECISION_MODIFY,
-    DECISION_REJECT,
-    KIND_PROFILE_UPDATE,
-    KIND_SAFETY_RISK,
-    PendingConfirmation,
-)
 
 
 SUPPORTED_TOOL_GROUPS = frozenset({"memory", "rag"})
 DEFAULT_TOOL_GROUPS = frozenset({"memory", "rag"})
 
+# 相对导入要求父包存在（作为 ``WellnessAgent.wellnessagent.*`` 导入时成立）。
+# 若 repo 根目录本身在 ``sys.path`` 上（``python -m benchmark.cli`` / uvicorn 直跑），
+# 相对导入会以 "attempted relative import beyond top-level package" 失败，
+# 故回落为「把 repo 父目录加入 path + 按绝对名导入」。
+# 注意：``core.hitl`` 也必须走这条回落 —— 它原先在 try 之外，是 import 失败的根因。
 try:
     from ..agents.react_agent import ReActAgent
+    from ..core.hitl import (
+        ConfirmationDecision,
+        DECISION_APPROVE,
+        DECISION_MODIFY,
+        DECISION_REJECT,
+        KIND_PROFILE_UPDATE,
+        KIND_SAFETY_RISK,
+        PendingConfirmation,
+    )
     from ..core.llm import HelloAgentsLLM
+    from ..core.media_store import MediaStore
     from ..core.session_store import SessionStore
     from ..observability.trace_logger import TraceLogger
     from ..memory import MemoryConfig
@@ -45,7 +51,9 @@ except ImportError:
     package_name = repo_root.name
 
     react_agent_module = importlib.import_module(f"{package_name}.agents.react_agent")
+    hitl_module = importlib.import_module(f"{package_name}.core.hitl")
     llm_module = importlib.import_module(f"{package_name}.core.llm")
+    media_store_module = importlib.import_module(f"{package_name}.core.media_store")
     session_store_module = importlib.import_module(f"{package_name}.core.session_store")
     trace_logger_module = importlib.import_module(
         f"{package_name}.observability.trace_logger"
@@ -60,7 +68,15 @@ except ImportError:
     registry_module = importlib.import_module(f"{package_name}.tools.registry")
 
     ReActAgent = react_agent_module.ReActAgent
+    ConfirmationDecision = hitl_module.ConfirmationDecision
+    DECISION_APPROVE = hitl_module.DECISION_APPROVE
+    DECISION_MODIFY = hitl_module.DECISION_MODIFY
+    DECISION_REJECT = hitl_module.DECISION_REJECT
+    KIND_PROFILE_UPDATE = hitl_module.KIND_PROFILE_UPDATE
+    KIND_SAFETY_RISK = hitl_module.KIND_SAFETY_RISK
+    PendingConfirmation = hitl_module.PendingConfirmation
     HelloAgentsLLM = llm_module.HelloAgentsLLM
+    MediaStore = media_store_module.MediaStore
     SessionStore = session_store_module.SessionStore
     TraceLogger = trace_logger_module.TraceLogger
     MemoryConfig = memory_module.MemoryConfig
@@ -86,6 +102,9 @@ class WellnessPlanningAgent(ReActAgent):
     ):
         self.user_id = user_id
         self.tool_groups = self._normalize_tool_groups(tool_groups)
+        # R9：新增 ``perceptual``，让识餐结果能被 ``memory_search`` 检索到。
+        # 这依赖 P3.0-1 的 CLIP/CLAP 懒加载修复 —— 否则 LRU 里 50 个用户实例
+        # 构造时会各自尝试加载一遍模型。
         self.memory_tool = MemoryTool(
             user_id=user_id,
             memory_config=memory_config or MemoryConfig(
@@ -93,7 +112,7 @@ class WellnessPlanningAgent(ReActAgent):
                 importance_threshold=0.25,
                 decay_factor=0.96,
             ),
-            memory_types=["working", "episodic"],
+            memory_types=["working", "episodic", "perceptual"],
         )
         self.rag_tool = RAGTool(
             knowledge_base_path=knowledge_base_path or str(
@@ -129,6 +148,19 @@ class WellnessPlanningAgent(ReActAgent):
         self.get_guardrail_profile = self.service.get_current_profile
         self.get_summary_llm = self.service._get_distill_llm
         self.guardrails = DietGuardrails(llm=self._maybe_guardrail_llm())
+
+        # 多模态（R9）。媒体只存引用，发送前才由 resolver 解析为 data-url。
+        self.media_store = MediaStore()
+        self.media_resolver = self._resolve_media
+        self._vision_llm: Optional[HelloAgentsLLM] = None
+        self._food_recognizer = None
+        # 本轮识餐结果（供 chat_with_trace 回传 ``vision`` 字段）。
+        self._last_vision: dict[str, Any] | None = None
+        # 本轮带图的 user 消息（由 _prepare_vision_turn 构造）。为 None 时
+        # 内核走 ``Message(input_text, "user")`` 原路径——这是「不带图字节级等价」的关键。
+        self._turn_user_message = None
+        # 本轮附件的 file_id（供 system 注入与 OrchestrationContext 透传）。
+        self._turn_vision_file_ids: list[str] = []
 
         # Trace（R5）。默认按 user_id 落盘，session_id 在开启会话时确定。
         self._trace_enabled = (
@@ -368,7 +400,35 @@ class WellnessPlanningAgent(ReActAgent):
                     self.service.get_working_context_summary(limit=6, max_chars=900),
                 ]
             )
+
+        # R9 提示层（安全三层联动第一层）：把本轮识餐结果与风险命中注入 system。
+        vision_block = self._build_vision_prompt_section()
+        if vision_block:
+            sections.append(vision_block)
         return "\n".join(sections)
+
+    def _build_vision_prompt_section(self) -> str:
+        """本轮识餐结果的 system 注入块（方案 §2.6 提示层）。
+
+        无附件 / 识餐失败时返回空串——**不注入任何内容**，system 消息与二期
+        字节级一致。命中风险时用警示块（强指令），否则用普通上下文块。
+        """
+        vision = self._last_vision
+        if not vision:
+            return ""
+        try:
+            from .prompts import vision_context_block, vision_risk_warning_block
+        except ImportError:  # pragma: no cover - 相对导入回落
+            return ""
+        summary = str(vision.get("summary") or "")
+        hits = [str(h) for h in (vision.get("risk_hits") or [])]
+        if hits:
+            return vision_risk_warning_block(hits, summary)
+        names = [
+            str((item or {}).get("name", "")).strip()
+            for item in (vision.get("items") or [])
+        ]
+        return vision_context_block(summary, [n for n in names if n])
 
     def build_additional_context(self, input_text: str) -> str:
         """Deprecated: 旧内核每步注入用；新内核用 _build_system_prompt。保留空实现。"""
@@ -383,6 +443,265 @@ class WellnessPlanningAgent(ReActAgent):
             return self.service._get_distill_llm()
         except Exception:
             return None
+
+    # ------------------------------------------------------------------ R9 视觉
+    @staticmethod
+    def vision_enabled() -> bool:
+        """R9 多模态总开关（``WELLNESS_VLM_ENABLED``，默认 false）。
+
+        关闭时：上传接口 501、``_get_vision_llm()`` 返回 None、
+        ``_select_llm_for_turn`` 恒返回主 llm —— 行为与二期完全一致。
+        """
+        return os.getenv("WELLNESS_VLM_ENABLED", "false").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _get_vision_llm(self):
+        """按需构造视觉模型实例（复用 ``_get_distill_llm`` 的懒加载缓存范式）。
+
+        - ``WELLNESS_VLM_ENABLED=false`` → None（本期功能整体关闭）；
+        - 凭据回落顺序：``WELLNESS_VLM_*`` → ``DASHSCOPE_API_KEY`` / qwen 兼容端点；
+        - 构造失败一律吞成 None，主对话降级为纯文本路径而不是整轮报错。
+        """
+        if not self.vision_enabled():
+            return None
+        if self._vision_llm is not None:
+            return self._vision_llm
+
+        model = os.getenv("WELLNESS_VLM_MODEL_ID", "qwen-vl-max-latest")
+        api_key = (
+            os.getenv("WELLNESS_VLM_API_KEY")
+            or os.getenv("DASHSCOPE_API_KEY")
+            or os.getenv("LLM_API_KEY")
+        )
+        base_url = (
+            os.getenv("WELLNESS_VLM_BASE_URL")
+            or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
+        try:
+            self._vision_llm = HelloAgentsLLM(
+                model=model,
+                api_key=api_key,
+                base_url=base_url,
+                provider="qwen",
+                temperature=0.2,
+            )
+        except Exception:
+            self._vision_llm = None
+        return self._vision_llm
+
+    def _select_llm_for_turn(self):
+        """本轮 messages 含图 → 视觉模型实例；否则主 llm（一期路径，字节级等价）。"""
+        if not self._current_turn_has_media():
+            return self.llm
+        return self._get_vision_llm() or self.llm
+
+    def _resolve_media(self, file_id: str) -> str:
+        """``Message.to_openai(resolver=...)`` 用的解析回调（只在发送前调用）。"""
+        try:
+            return self.media_store.resolve_data_url(file_id, self.user_id) or ""
+        except Exception:
+            return ""
+
+    def _build_user_message(self, user_input: str, attachments=None):
+        """构造本轮 user 消息：无附件 → ``str``（C2）；有附件 → list content。
+
+        附件只写 ``wellness-file://<file_id>`` 短引用，base64 绝不进 content。
+        不存在/不属于该用户的 file_id 会被静默丢弃。
+
+        ``attachments`` 可以是原始附件（dict / 对象 / str），也可以是**已归一化**的
+        ``file_id`` 字符串列表——后者是 ``_prepare_vision_turn`` 的用法，避免对
+        ``MediaStore`` 重复做一遍存在性校验。
+        """
+        from ..core.message import Message, make_image_part, make_text_part
+
+        file_ids = self._normalize_attachments(attachments)
+        if not file_ids:
+            # C2：纯文本一律存 str，形态与一/二期完全一致。
+            return Message(user_input, "user")
+        parts = []
+        if user_input:
+            parts.append(make_text_part(user_input))
+        parts.extend(make_image_part(fid) for fid in file_ids)
+        return Message(parts, "user")
+
+    def _normalize_attachments(self, attachments) -> list[str]:
+        """把 ``attachments`` 归一化为已落盘、且归属本用户的 file_id 列表。"""
+        if not attachments or not self.vision_enabled():
+            return []
+        file_ids: list[str] = []
+        for item in attachments:
+            if isinstance(item, str):
+                file_id, kind = item, "image"
+            elif isinstance(item, dict):
+                file_id, kind = str(item.get("file_id") or ""), item.get("kind", "image")
+            else:
+                file_id = str(getattr(item, "file_id", "") or "")
+                kind = getattr(item, "kind", "image")
+            if not file_id or kind != "image" or file_id in file_ids:
+                continue
+            try:
+                if not self.media_store.exists(file_id, self.user_id):
+                    continue
+            except Exception:
+                continue
+            file_ids.append(file_id)
+        return file_ids
+
+    def _prepare_vision_turn(self, user_input: str, attachments=None):
+        """本轮多模态前置处理（在分诊/主循环**之前**跑，方案 §2.6）。
+
+        三件事，顺序固定：
+
+        1. 归一化 ``attachments`` → 已落盘且归属本用户的 ``file_id`` 列表；
+        2. 跑一次结构化识餐（安全比对 / 感知记忆 / ``vision`` 响应字段）；
+        3. 构造本轮 user 消息（带图 → list content；不带图 → ``str``，C2）。
+
+        无附件时**全部短路**：``_turn_user_message`` 置 None、``_last_vision`` 置 None，
+        后续链路与二期字节级等价。
+        """
+        self._turn_vision_file_ids = []
+        self._turn_user_message = None
+        self._last_vision = None
+
+        file_ids = self._normalize_attachments(attachments)
+        if not file_ids:
+            return None
+
+        self._turn_vision_file_ids = file_ids
+        recognition = self._run_food_recognition(file_ids)
+        # 图片进 messages 与识餐是否成功**无关**：识别失败也要让模型能看图。
+        self._turn_user_message = self._build_user_message(user_input, file_ids)
+        if recognition is not None:
+            # 把识餐摘要挂在消息 metadata 上，供 HistoryManager.demote_media()
+            # 把旧图片降级为 "[图片：<识餐摘要>]" 而不是干巴巴的 "[图片]"（方案 §2.3）。
+            summary = recognition.summary_preview()
+            if summary:
+                vision_meta = {fid: {"summary": summary} for fid in file_ids}
+                metadata = dict(self._turn_user_message.metadata or {})
+                metadata["vision"] = vision_meta
+                self._turn_user_message.metadata = metadata
+        return recognition
+
+    def _get_food_recognizer(self):
+        """按需构造 :class:`FoodRecognizer`（懒加载缓存，与 ``_get_vision_llm`` 同款）。"""
+        if self._food_recognizer is not None:
+            return self._food_recognizer
+        vision_llm = self._get_vision_llm()
+        if vision_llm is None:
+            return None
+        try:
+            from .vision import FoodRecognizer
+        except ImportError:  # pragma: no cover - 相对导入回落（详见模块顶部注释）
+            vision_module = importlib.import_module(
+                f"{Path(__file__).resolve().parents[1].name}.wellnessagent.vision"
+            )
+            FoodRecognizer = vision_module.FoodRecognizer
+        self._food_recognizer = FoodRecognizer(
+            vision_llm=vision_llm, media_store=self.media_store
+        )
+        return self._food_recognizer
+
+    def _run_food_recognition(self, file_ids: list[str], on_event=None):
+        """turn 开始、进主循环**之前**跑一次结构化识餐（方案 §2.6）。
+
+        识别成功则：
+        1. 缓存到 ``self._last_vision``（供响应回传 ``vision`` 字段）；
+        2. 由 ``_build_system_prompt`` 注入本轮 system（提示层安全联动）;
+        3. 写一条 ``perceptual`` 记忆（供 ``memory_search`` 与 R12 时间线）。
+
+        任何失败都只是**没有结构化结果**——图片依然进 messages，模型仍可自行看图。
+        识餐不是多模态对话的前置条件。
+        """
+        self._last_vision = None
+        recognizer = self._get_food_recognizer()
+        if recognizer is None or not file_ids:
+            return None
+
+        def _on_event(event: str, payload: dict) -> None:
+            if self.trace_logger is not None:
+                try:
+                    self.trace_logger.log_event(event, payload)
+                except Exception:
+                    pass
+            if on_event is not None:
+                on_event(event, payload)
+
+        try:
+            profile = self.service.get_current_profile()
+        except Exception:
+            profile = None
+        try:
+            profile_summary = (
+                self.service.get_current_profile_summary() if profile else ""
+            )
+        except Exception:
+            profile_summary = ""
+
+        try:
+            recognition = recognizer.recognize(
+                file_ids,
+                profile=profile,
+                user_id=self.user_id,
+                profile_summary=profile_summary,
+                on_event=_on_event,
+            )
+        except Exception:
+            recognition = None
+        if recognition is None:
+            return None
+
+        self._last_vision = recognition.to_dict()
+        self._write_perceptual_memory(recognition)
+        return recognition
+
+    def _write_perceptual_memory(self, recognition) -> None:
+        """把识餐结果写入感知记忆（方案 §2.6）。
+
+        ``content`` 用文本摘要 → 能被既有 ``memory_search`` 检索到（"上周我吃过什么"）；
+        ``metadata`` 带 ``file_id`` / ``raw_data`` 路径 / 结构化结果 / 风险命中
+        → 供 CLIP 编码（若启用）与 R12 时间线的 ``perception`` 条目使用。
+
+        写失败只记 trace，不影响本轮对话。
+        """
+        summary = (recognition.summary or "").strip()
+        if not summary:
+            return
+        for file_id in recognition.file_ids:
+            raw_path = ""
+            try:
+                path = self.media_store.path_of(file_id, self.user_id)
+                raw_path = str(path) if path else ""
+            except Exception:
+                raw_path = ""
+            metadata: dict[str, Any] = {
+                "modality": "image",
+                "file_id": file_id,
+                "recognition": recognition.to_dict(),
+                "risk_hits": recognition.risk_hits,
+                "category": "food_photo",
+                "session_id": self.session_id,
+            }
+            if raw_path:
+                metadata["raw_data"] = raw_path
+            try:
+                self.service.perceptual_note(
+                    summary,
+                    metadata=metadata,
+                    importance=0.8 if recognition.has_risk else 0.6,
+                )
+            except Exception:
+                if self.trace_logger is not None:
+                    try:
+                        self.trace_logger.log_event(
+                            "vision_error",
+                            {"message": f"perceptual memory write failed: {file_id}"},
+                        )
+                    except Exception:
+                        pass
 
     def _ensure_session(self) -> None:
         """Ensure an active session id (对话 session 与 working memory session 统一)."""
@@ -433,7 +752,11 @@ class WellnessPlanningAgent(ReActAgent):
         return answer
 
     def chat_with_trace(
-        self, user_input: str, confirmation: dict | None = None, **kwargs
+        self,
+        user_input: str,
+        confirmation: dict | None = None,
+        attachments: list | None = None,
+        **kwargs,
     ) -> dict[str, Any]:
         """Run one planning turn and return structured trace data.
 
@@ -443,8 +766,16 @@ class WellnessPlanningAgent(ReActAgent):
 
         R7 HITL：若 ``confirmation`` 非空，则本轮是对上一轮挂起项的确认恢复；否则
         composite pipeline 命中高影响步骤时挂起，返回 ``confirmation`` 字段等待下一轮。
+
+        R9 多模态：``attachments`` 非空时，先跑一次结构化识餐（供安全比对 / 感知记忆 /
+        ``vision`` 响应字段），再把图片作为 list content 并入本轮 user 消息，
+        让模型在主循环里能**重新看图**回答后续追问。
+        ``attachments`` 为空时与二期行为字节级等价。
         """
         self._ensure_session()
+
+        # R9：先落地本轮附件与识餐（在分诊/主循环之前，方案 §2.6）。
+        vision = self._prepare_vision_turn(user_input, attachments)
 
         # R7 恢复：解析确认决策，构造 resume 上下文（含落库画像 / 决策）。
         resume_ctx: dict | None = None
@@ -468,7 +799,11 @@ class WellnessPlanningAgent(ReActAgent):
                 )
 
         # simple 路径（或编排关闭）：一期单体原路径，完全不变。
-        result = self.run_with_trace(user_input, **kwargs)
+        # R9：带图时把 list content 的 user 消息交给内核（不带图则 user_message=None，
+        # 内核走 Message(input_text, "user") 原路径）。
+        result = self.run_with_trace(
+            user_input, user_message=self._turn_user_message, **kwargs
+        )
         if self._orchestration_enabled:
             orchestration_meta = {"route": ROUTE_SIMPLE, "delegate_to_monolith": True}
         return self._build_chat_response(result, orchestration_meta, confirmation_out)
@@ -496,6 +831,10 @@ class WellnessPlanningAgent(ReActAgent):
             response["orchestration"] = orchestration_meta
         if confirmation_out is not None:
             response["confirmation"] = confirmation_out
+        # R9：仅在本轮真的识餐成功时才带 ``vision`` 字段。
+        # 不带附件的请求响应结构与二期**逐字段一致**（方案 §9.1）。
+        if self._last_vision:
+            response["vision"] = self._last_vision
         return response
 
     # ------------------------------------------------------------------ HITL
@@ -514,8 +853,14 @@ class WellnessPlanningAgent(ReActAgent):
         self._pending_confirmation = pending
 
         # 把本轮 user 与确认提示写进主 messages（回合闭环、可续接）。
+        # R9：带图时写 list content 的那条消息，否则图片会在挂起回合丢失——
+        # 用户确认后的下一轮就看不到图了。
         self._refresh_system_message(user_input)
-        self._append_message(Message(user_input, "user"))
+        self._append_message(
+            self._turn_user_message
+            if self._turn_user_message is not None
+            else Message(user_input, "user")
+        )
         self._append_message(Message(pending.prompt, "assistant"))
         if self.trace_logger is not None:
             self.trace_logger.log_event(
@@ -608,14 +953,26 @@ class WellnessPlanningAgent(ReActAgent):
         return PendingConfirmation.from_dict(raw)
 
     def _build_orchestration_context(self, user_input: str) -> OrchestrationContext:
-        """装配编排上下文：注入只读的用户画像风险词，供 safety 子代理使用。"""
+        """装配编排上下文：注入只读的用户画像风险词，供 safety 子代理使用。
+
+        R9 确认层（安全三层联动第二层）：把本轮识餐命中的风险词一并透传，
+        让 safety SubAgent 能据此触发 ``KIND_SAFETY_RISK`` 挂起确认（方案 §2.6）。
+        不带图时 ``vision_risk_hits`` 为空列表，编排行为与二期完全一致。
+        """
         risk_terms: list[str] = []
         try:
             profile = self.service.get_current_profile()
             risk_terms = safety_rules.collect_risk_terms(profile)
         except Exception:
             risk_terms = []
-        return OrchestrationContext(message=user_input, risk_terms=risk_terms)
+        vision_hits = [str(h) for h in ((self._last_vision or {}).get("risk_hits") or [])]
+        vision_summary = str((self._last_vision or {}).get("summary") or "")
+        return OrchestrationContext(
+            message=user_input,
+            risk_terms=risk_terms,
+            vision_risk_hits=vision_hits,
+            vision_summary=vision_summary,
+        )
 
     def _finalize_composite(self, user_input: str, answer: str):
         """把 composite 聚合答案并入主 messages，走一期 _finalize（guardrails + 状态）。
@@ -628,7 +985,13 @@ class WellnessPlanningAgent(ReActAgent):
         from ..core.message import Message
 
         self._refresh_system_message(user_input)
-        self._append_message(Message(user_input, "user"))
+        # R9：composite 路径同样要把带图消息并入主 messages，
+        # 否则后续轮次无法对同一张图追问（方案 §2.0 “图片是一等公民”）。
+        self._append_message(
+            self._turn_user_message
+            if self._turn_user_message is not None
+            else Message(user_input, "user")
+        )
         if self.trace_logger is not None:
             self.trace_logger.log_event(
                 "message_written", {"role": "user", "content": user_input}
@@ -636,7 +999,13 @@ class WellnessPlanningAgent(ReActAgent):
         # 复用一期 _finalize：guardrails 硬红线复核 + 把 safe_answer 追加进 messages。
         return self._finalize(user_input, answer, [], TERMINATED_FINISHED)
 
-    def chat_stream(self, user_input: str, confirmation: dict | None = None, **kwargs):
+    def chat_stream(
+        self,
+        user_input: str,
+        confirmation: dict | None = None,
+        attachments: list | None = None,
+        **kwargs,
+    ):
         """流式对话（R2）：逐 step/tool 事件 + 最终答案分段 ``LLM_CHUNK``。
 
         方案 §6.2 一期做法：不做逐 token，final_answer 由本层按块切片输出。
@@ -644,6 +1013,9 @@ class WellnessPlanningAgent(ReActAgent):
 
         R6/R7：composite 路径下发编排/子代理事件；命中高影响步骤下发 ``CONFIRM``
         并结束本回合（挂起态已落盘，等待下一轮 ``confirmation`` 恢复）。
+
+        R9：带附件时先下发 ``VISION_START``（前端展示"正在看图…"），识别完成后
+        下发 ``VISION_RESULT``（前端渲染 ``VisionCard``），再进主循环。
         """
         from .server.streaming import StreamEvent, StreamEventType
 
@@ -651,6 +1023,11 @@ class WellnessPlanningAgent(ReActAgent):
         yield StreamEvent(
             StreamEventType.AGENT_START, {"session_id": self.session_id}
         )
+
+        # R9：识餐在主循环之前跑；把 recognizer 的观测回调转成流式事件。
+        # 用列表收集而非直接 yield：_prepare_vision_turn 是普通函数，
+        # 回调里没法 yield，故先攒起来、回来再逐个下发。
+        yield from self._stream_vision_turn(user_input, attachments)
 
         # R6/R7 编排路径：先分诊，composite 走编排（可能挂起）。
         if self._orchestration_enabled:
@@ -671,7 +1048,10 @@ class WellnessPlanningAgent(ReActAgent):
         safety: dict[str, Any] | None = None
         steps: list[dict] = []
         try:
-            for event in self.stream_run(user_input, **kwargs):
+            # R9：与非流式一致，带图时把 list content 消息交给内核。
+            for event in self.stream_run(
+                user_input, user_message=self._turn_user_message, **kwargs
+            ):
                 etype = event.get("type")
                 if etype == "step_start":
                     yield StreamEvent(
@@ -740,6 +1120,47 @@ class WellnessPlanningAgent(ReActAgent):
                 "safety": safety,
             },
         )
+
+    def _stream_vision_turn(self, user_input: str, attachments=None):
+        """跑识餐并把观测回调转成流式事件（R9，方案 §2.7）。
+
+        ``_prepare_vision_turn`` 是普通函数，回调里无法 ``yield``，
+        故先把事件攒到 list 里，返回后再逐个下发。本轮无附件时
+        **一个事件都不会下发**，流式序列与二期完全一致。
+        """
+        from .server.streaming import StreamEvent, StreamEventType
+
+        if not self._normalize_attachments(attachments):
+            # 无附件：仍然要跑一次以重置本轮状态（_turn_user_message / _last_vision）。
+            self._prepare_vision_turn(user_input, attachments)
+            return
+
+        collected: list[tuple[str, dict]] = []
+        original = self._run_food_recognition
+
+        def _patched(file_ids, on_event=None):
+            return original(file_ids, on_event=lambda e, p: collected.append((e, p)))
+
+        self._run_food_recognition = _patched  # type: ignore[method-assign]
+        try:
+            self._prepare_vision_turn(user_input, attachments)
+        finally:
+            self._run_food_recognition = original  # type: ignore[method-assign]
+
+        mapping = {
+            "vision_start": StreamEventType.VISION_START,
+            "vision_result": StreamEventType.VISION_RESULT,
+            "vision_error": StreamEventType.ERROR,
+        }
+        for event, payload in collected:
+            etype = mapping.get(event)
+            if etype is None:
+                continue
+            if etype is StreamEventType.VISION_RESULT and self._last_vision:
+                # 给前端 VisionCard 完整结构（食物/热量/宏量/风险）。
+                yield StreamEvent(etype, dict(self._last_vision))
+                continue
+            yield StreamEvent(etype, payload)
 
     def _stream_composite(self, user_input: str, orch):
         """把编排结果转成流事件：子代理摘要 → (CONFIRM | 聚合答案分段) → finish。"""
@@ -929,13 +1350,14 @@ class WellnessPlanningAgent(ReActAgent):
         pending_user: str | None = None
         for message in self.messages:
             if message.role == "user":
-                pending_user = message.content
+                # R9：带图的 user 消息取文本部分（图片降级为 [图片] 占位）。
+                pending_user = message.text_content
             elif message.role == "assistant" and pending_user is not None:
-                content = (message.content or "").strip()
+                content = message.text_content.strip()
                 if not content:
                     # tool_calls-only 的 assistant（无面向用户文本）不算回合收尾。
                     continue
-                turns.append({"user": pending_user, "assistant": message.content})
+                turns.append({"user": pending_user, "assistant": message.text_content})
                 pending_user = None
         return turns
 
