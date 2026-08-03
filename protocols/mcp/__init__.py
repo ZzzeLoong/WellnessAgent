@@ -1,43 +1,36 @@
 """MCP (Model Context Protocol) 协议实现
 
 基于 fastmcp 和 mcp 库的封装，提供简洁的 API 用于：
-- 创建 MCP 服务器（需要 fastmcp）
-- 连接 MCP 服务器（需要 mcp，可选）
-- 管理模型上下文
+- 创建 MCP 服务器（fastmcp 为**可选**依赖）
+- 连接 MCP 服务器（fastmcp 为**可选**依赖）
+- 管理模型上下文（无额外依赖）
+
+Phase 3.0-4：``server`` 与 ``client`` 均已软依赖化，import 本包**永远不会**因缺少
+``fastmcp`` 而失败；缺依赖时只有在实例化 ``MCPServer`` / ``MCPClient`` 时才报友好错误。
+``MCP_SERVER_AVAILABLE`` / ``MCP_CLIENT_AVAILABLE`` 供调用方提前探测。
 """
 
 from .utils import create_context, parse_context
+from .server import (
+    FASTMCP_AVAILABLE as MCP_SERVER_AVAILABLE,
+    MCPServer,
+    MCPServerBuilder,
+    create_example_server,
+)
+from .client import (
+    FASTMCP_AVAILABLE as MCP_CLIENT_AVAILABLE,
+    MCPClient,
+)
 
-# 服务器需要 fastmcp
-try:
-    from .server import MCPServer
-    MCP_SERVER_AVAILABLE = True
-except ImportError:
-    MCP_SERVER_AVAILABLE = False
-    class MCPServer:
-        def __init__(self, *args, **kwargs):
-            raise ImportError(
-                "MCP server requires the 'fastmcp' library. "
-                "Install it with: pip install fastmcp"
-            )
-
-# 客户端需要 mcp
-try:
-    from .client import MCPClient
-    MCP_CLIENT_AVAILABLE = True
-except ImportError:
-    MCP_CLIENT_AVAILABLE = False
-    class MCPClient:
-        def __init__(self, *args, **kwargs):
-            raise ImportError(
-                "MCP client requires the 'mcp' library. "
-                "Install it with: pip install mcp"
-            )
 
 __all__ = [
+    "MCP_CLIENT_AVAILABLE",
+    "MCP_SERVER_AVAILABLE",
     "MCPClient",
     "MCPServer",
+    "MCPServerBuilder",
     "create_context",
+    "create_example_server",
     "parse_context",
 ]
 

@@ -13,6 +13,32 @@ _FUNCTION_CALLING_PROVIDERS = frozenset(
     {"openai", "deepseek", "qwen", "modelscope", "kimi", "zhipu"}
 )
 
+# 可接收图片输入的 provider 白名单（三期 R9，方案 §2.4）。
+_VISION_PROVIDERS = frozenset({"openai", "qwen", "modelscope", "zhipu"})
+
+# 模型名启发式：命中任一子串则视为视觉模型。
+_VISION_MODEL_HINTS = (
+    "-vl",
+    "vl-",
+    "vision",
+    "gpt-4o",
+    "gpt-4-turbo",
+    "gpt-5",
+    "o4-mini",
+    "glm-4v",
+    "internvl",
+    "llava",
+    "qwen-omni",
+)
+
+# 明确**不**支持视觉的模型名子串（优先于上面的启发式）。
+_NON_VISION_MODEL_HINTS = (
+    "gpt-3.5",
+    "deepseek-chat",
+    "deepseek-reasoner",
+    "text-embedding",
+)
+
 # 支持的LLM提供商
 SUPPORTED_PROVIDERS = Literal[
     "openai",
@@ -410,3 +436,23 @@ class HelloAgentsLLM:
         if forced is not None:
             return forced.strip().lower() in {"1", "true", "yes", "on"}
         return (self.provider or "").lower() in _FUNCTION_CALLING_PROVIDERS
+
+    def supports_vision(self) -> bool:
+        """当前实例是否可接收图片输入（三期 R9，方案 §2.4）。
+
+        与 ``supports_function_calling()`` 同款设计：
+
+        1. ``WELLNESS_FORCE_VISION`` 强制覆盖（true/false）；
+        2. 模型名命中明确的非视觉子串 → False；
+        3. 模型名命中视觉启发式子串 → True；
+        4. 否则回落 provider 白名单。
+        """
+        forced = os.getenv("WELLNESS_FORCE_VISION")
+        if forced is not None:
+            return forced.strip().lower() in {"1", "true", "yes", "on"}
+        model = (self.model or "").lower()
+        if any(hint in model for hint in _NON_VISION_MODEL_HINTS):
+            return False
+        if any(hint in model for hint in _VISION_MODEL_HINTS):
+            return True
+        return (self.provider or "").lower() in _VISION_PROVIDERS

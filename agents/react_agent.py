@@ -102,6 +102,9 @@ class ReActAgent(Agent):
         self.trace_logger = None
         self.guardrails = None
         self.get_guardrail_profile: Optional[Callable[[], Any]] = None
+        # R9：把 ``wellness-file://<id>`` 还原为 data-url 的回调（由业务 agent 注入）。
+        # 为 None 时 ``to_openai()`` 不传 resolver，行为与一/二期字节级等价（C3）。
+        self.media_resolver: Optional[Callable[[str], str]] = None
         self.smart_compression = (
             os.getenv("WELLNESS_SMART_COMPRESSION", "false").lower() == "true"
         )
@@ -120,6 +123,7 @@ class ReActAgent(Agent):
         input_text: str,
         system_prompt_override: Optional[str] = None,
         allowed_tools: Optional[List[str]] = None,
+        user_message: Optional[Message] = None,
         **kwargs,
     ) -> ReActRunResult:
         """非流式：驱动内部事件生成器，只取最终结果。
@@ -131,12 +135,15 @@ class ReActAgent(Agent):
                 上下文的正规入口，替代猴补丁）。不传=一期行为。
             allowed_tools: P0-1/P0-4 授权工具白名单。传入时本次运行只暴露/执行白名单内
                 的工具（``finish`` 恒被允许）。不传=一期行为（全部工具）。
+            user_message: R9 多模态入口。传入时用它（可带 list content）作为本轮
+                user 消息，而不是 ``Message(input_text, "user")``。不传=一期行为。
         """
         result: Optional[ReActRunResult] = None
         for event in self._iter_events(
             input_text,
             system_prompt_override=system_prompt_override,
             allowed_tools=allowed_tools,
+            user_message=user_message,
         ):
             if event["type"] == "result":
                 result = event["result"]
@@ -148,6 +155,7 @@ class ReActAgent(Agent):
         input_text: str,
         system_prompt_override: Optional[str] = None,
         allowed_tools: Optional[List[str]] = None,
+        user_message: Optional[Message] = None,
         **kwargs,
     ):
         """流式：逐事件产出（step_start / tool_call / tool_result / step / result）。
@@ -155,12 +163,14 @@ class ReActAgent(Agent):
         供业务 agent 的 ``chat_stream`` 消费；事件为普通 dict，业务层自行映射为
         SSE。最终答案分段由业务层对 ``result.final_answer`` 切片（方案 §6.2 一期做法）。
 
-        ``system_prompt_override`` / ``allowed_tools`` 语义同 ``run_with_trace``（P0-1）。
+        ``system_prompt_override`` / ``allowed_tools`` / ``user_message``
+        语义同 ``run_with_trace``。
         """
         yield from self._iter_events(
             input_text,
             system_prompt_override=system_prompt_override,
             allowed_tools=allowed_tools,
+            user_message=user_message,
         )
 
     # ------------------------------------------------------------------ core loop
@@ -169,13 +179,17 @@ class ReActAgent(Agent):
         input_text: str,
         system_prompt_override: Optional[str] = None,
         allowed_tools: Optional[List[str]] = None,
+        user_message: Optional[Message] = None,
     ):
         """累积 messages + FC 主循环，逐步 yield 事件，最后 yield 一个 result 事件。"""
         use_fc = self.llm.supports_function_calling()
         source = "function_calling" if use_fc else "json_fallback"
 
         self._refresh_system_message(input_text, system_prompt_override)
-        self._append_message(Message(input_text, "user"))
+        # R9：业务层可传入带图的 user 消息；不传则与一期完全一致。
+        self._append_message(
+            user_message if user_message is not None else Message(input_text, "user")
+        )
         if self.trace_logger is not None:
             self.trace_logger.log_event(
                 "message_written", {"role": "user", "content": input_text}
@@ -361,28 +375,55 @@ class ReActAgent(Agent):
         )
 
     # ------------------------------------------------------------------ invoke
+    def _select_llm_for_turn(self):
+        """选本轮使用的 LLM 实例（R9 双模型策略的唯一钩子，方案 §2.4）。
+
+        基类恒返回 ``self.llm``（一期行为）；业务 agent 覆写它来实现
+        "本轮 messages 含图 → 切视觉模型"。**不含图的对话，走的还是原来那条
+        路径，字节级等价。**
+        """
+        return self.llm
+
+    def _current_turn_has_media(self) -> bool:
+        """本轮累积 messages 里是否存在未降级的媒体 part。"""
+        return any(m.has_media for m in self.messages)
+
+    def _openai_messages(self) -> List[dict]:
+        """把累积 messages 转为 OpenAI 数组（带媒体 resolver）。
+
+        这是 base64 **唯一**出现的地方：只存在于这个临时 payload 里，
+        不回写 ``self.messages``，也不进 SessionStore / trace。
+        """
+        resolver = self.media_resolver
+        if resolver is None:
+            return [m.to_openai() for m in self.messages]
+        return [m.to_openai(resolver=resolver) for m in self.messages]
+
     def _invoke_fc(self, tool_schemas: List[dict]) -> LLMToolResponse:
         """FC 路径：原生返回 tool_calls。"""
-        openai_messages = [m.to_openai() for m in self.messages]
-        return self.llm.invoke_with_tools(openai_messages, tool_schemas, tool_choice="auto")
+        llm = self._select_llm_for_turn()
+        return llm.invoke_with_tools(
+            self._openai_messages(), tool_schemas, tool_choice="auto"
+        )
 
     def _invoke_fallback(self) -> LLMToolResponse:
         """回退路径：invoke 文本 + JSON 解析 → 构造成 ToolCall。"""
-        openai_messages = [m.to_openai() for m in self.messages]
+        llm = self._select_llm_for_turn()
+        openai_messages = self._openai_messages()
         llm_kwargs: dict[str, Any] = {"temperature": 0.1}
         try:
-            text = self.llm.invoke(openai_messages, response_format={"type": "json_object"}, **llm_kwargs)
+            text = llm.invoke(openai_messages, response_format={"type": "json_object"}, **llm_kwargs)
         except Exception:
-            text = self.llm.invoke(openai_messages, **llm_kwargs)
+            text = llm.invoke(openai_messages, **llm_kwargs)
 
         parsed = self._parse_json_output(text or "")
         if parsed is None:
             # 无法解析成动作：把文本当作最终答案兜底。
-            return LLMToolResponse(content=text, tool_calls=[], model=self.llm.model)
+            return LLMToolResponse(content=text, tool_calls=[], model=llm.model)
 
         thought, name, arguments = parsed
         tc = ToolCall(id=f"call_{uuid.uuid4().hex[:12]}", name=name, arguments=json.dumps(arguments, ensure_ascii=False))
-        return LLMToolResponse(content=thought, tool_calls=[tc], model=self.llm.model)
+        return LLMToolResponse(content=thought, tool_calls=[tc], model=llm.model)
 
     # ------------------------------------------------------------------ finish
     def _extract_finish_answer(self, tool_calls: List[ToolCall]) -> Optional[str]:
@@ -431,7 +472,14 @@ class ReActAgent(Agent):
         self.history_manager.set_history(self.messages)
 
     def _maybe_compress(self) -> None:
-        """token 超阈值时按整轮压缩历史。"""
+        """token 超阈值时按阶梯压缩历史（方案 §2.3）。
+
+        ```
+        1) token < 阈值                       → 不动
+        2) 超阈值，且保留窗口之外还有图片 part  → demote_media()，重算；已达标则停
+        3) 仍超阈值                           → 走一期整轮 compress(summary)
+        ```
+        """
         try:
             total = self.token_counter.count_messages(self.messages)
         except Exception:
@@ -439,6 +487,28 @@ class ReActAgent(Agent):
         threshold = self.context_window * self.history_manager.compression_threshold
         if total < threshold:
             return
+
+        # 阶梯 2：先把旧图片降级为 [图片：<识餐摘要>]，成本远低于整轮压缩且更保信息。
+        demoted = 0
+        try:
+            demoted = self.history_manager.demote_media()
+        except Exception:
+            demoted = 0
+        if demoted:
+            self.messages = self.history_manager.get_history()
+            if self.trace_logger is not None:
+                self.trace_logger.log_event(
+                    "message_written",
+                    {"role": "user", "media_demoted": demoted, "tokens_before": total},
+                )
+            try:
+                total = self.token_counter.count_messages(self.messages)
+            except Exception:
+                return
+            if total < threshold:
+                return
+
+        # 阶梯 3：整轮压缩（一期行为，完全不变）。
         summary = self._build_compression_summary()
         if self.history_manager.compress(summary):
             self.messages = self.history_manager.get_history()
@@ -458,8 +528,9 @@ class ReActAgent(Agent):
                 llm = None
             if llm is not None:
                 try:
+                    # R9：统一走 text_content，list content 自动降级为文本（C3）。
                     transcript = "\n".join(
-                        f"[{m.role}] {(m.content or '')[:400]}" for m in self.messages
+                        f"[{m.role}] {m.text_content[:400]}" for m in self.messages
                     )
                     prompt = [
                         {"role": "system", "content": "请把以下多轮对话压缩为要点摘要，保留用户长期约束、关键决策与未完成事项，200 字内。"},

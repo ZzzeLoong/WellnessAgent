@@ -16,6 +16,9 @@ profile 额外叠加 :class:`ReadOnlyFilter`，从工具层杜绝写权限泄漏
 
 from __future__ import annotations
 
+import importlib
+import sys
+from pathlib import Path
 from typing import Any, Callable, Dict
 
 from ..prompts import (
@@ -24,8 +27,22 @@ from ..prompts import (
     SUBAGENT_RETRIEVAL_PROMPT,
     SUBAGENT_SAFETY_PROMPT,
 )
-from ...agents.sub_agent import SubAgent
-from ...tools.tool_filter import ToolFilter, WhitelistFilter, ReadOnlyFilter
+
+# 与 ``agent.py`` / ``orchestrator.py`` 同款回落（见那里的说明）：兼容
+# 「repo 根目录在 sys.path 上」与「作为 WellnessAgent 子包导入」两种形态。
+try:
+    from ...agents.sub_agent import SubAgent
+    from ...tools.tool_filter import ToolFilter, WhitelistFilter, ReadOnlyFilter
+except ImportError:
+    _repo_root = Path(__file__).resolve().parents[2]
+    if str(_repo_root.parent) not in sys.path:
+        sys.path.insert(0, str(_repo_root.parent))
+    _sub_agent = importlib.import_module(f"{_repo_root.name}.agents.sub_agent")
+    _tool_filter = importlib.import_module(f"{_repo_root.name}.tools.tool_filter")
+    SubAgent = _sub_agent.SubAgent
+    ToolFilter = _tool_filter.ToolFilter
+    WhitelistFilter = _tool_filter.WhitelistFilter
+    ReadOnlyFilter = _tool_filter.ReadOnlyFilter
 
 
 # 每个 SubAgent 的授权工具集与 prompt（单一事实源）。

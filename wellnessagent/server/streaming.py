@@ -30,6 +30,10 @@ class StreamEventType(str, Enum):
     SUBAGENT_RESULT = "subagent_result"
     ORCHESTRATOR_AGGREGATE = "orchestrator_aggregate"
     CONFIRM = "confirm"
+    # 三期 R9 识餐事件（方案 §2.7）：前端在识别期间展示「正在看图…」，
+    # 完成后用 VISION_RESULT 的载荷渲染 VisionCard。
+    VISION_START = "vision_start"
+    VISION_RESULT = "vision_result"
 
 
 @dataclass

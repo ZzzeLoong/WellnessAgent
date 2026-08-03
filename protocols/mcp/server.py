@@ -3,21 +3,51 @@
 
 使用 fastmcp 库实现 Model Context Protocol 服务器功能。
 fastmcp 是一个快速创建 MCP 服务器的 Python 库。
+
+**软依赖（Phase 3.0-4）**：``fastmcp`` 不在 ``requirements.txt`` 的必装段里。
+旧实现在**模块顶层**``raise ImportError``，导致任何人只要 import 本模块（包括
+静态分析、文档生成、``pytest`` 收集）就直接崩。现在改为：
+
+- 缺依赖时 ``FastMCP = None`` + ``FASTMCP_AVAILABLE = False``，**import 始终成功**；
+- 只在 ``MCPServer.__init__``（真正需要运行时）招友好错误；
+- 提供 ``is_available()`` 供调用方提前探测（R13 的 ``wellnessagent/mcp_server.py`` 会用）。
+
+安装：``pip install fastmcp``
 """
 
 from typing import Dict, Any, List, Optional, Callable
+
 try:
     from fastmcp import FastMCP
-except ImportError:
-    raise ImportError(
-        "fastmcp is required for MCP server functionality. "
-        "Install it with: pip install fastmcp"
-    )
+    FASTMCP_AVAILABLE = True
+except ImportError:  # pragma: no cover - 取决于环境是否装了 fastmcp
+    FastMCP = None
+    FASTMCP_AVAILABLE = False
+
+
+FASTMCP_MISSING_MESSAGE = (
+    "fastmcp is required for MCP server functionality. "
+    "Install it with: pip install fastmcp"
+)
+
+
+def is_available() -> bool:
+    """Return True when the optional ``fastmcp`` dependency is importable."""
+    return FASTMCP_AVAILABLE
+
+
+def require_fastmcp() -> None:
+    """Raise a friendly ``ImportError`` when ``fastmcp`` is not installed."""
+    if not FASTMCP_AVAILABLE:
+        raise ImportError(FASTMCP_MISSING_MESSAGE)
 
 
 class MCPServer:
-    """基于 fastmcp 库的 MCP 服务器"""
-    
+    """基于 fastmcp 库的 MCP 服务器
+
+    未安装 ``fastmcp`` 时，**构造时**招 ``ImportError``（而非 import 时）。
+    """
+
     def __init__(
         self,
         name: str,
@@ -29,7 +59,11 @@ class MCPServer:
         Args:
             name: 服务器名称
             description: 服务器描述
+
+        Raises:
+            ImportError: 未安装可选依赖 ``fastmcp``。
         """
+        require_fastmcp()
         self.mcp = FastMCP(name=name)
         self.name = name
         self.description = description or f"{name} MCP Server"
@@ -202,6 +236,17 @@ def create_example_server() -> MCPServer:
     server.add_tool(greet, name="greet", description="Generate a friendly greeting")
     
     return server
+
+
+__all__ = [
+    "FASTMCP_AVAILABLE",
+    "FASTMCP_MISSING_MESSAGE",
+    "MCPServer",
+    "MCPServerBuilder",
+    "create_example_server",
+    "is_available",
+    "require_fastmcp",
+]
 
 
 if __name__ == "__main__":

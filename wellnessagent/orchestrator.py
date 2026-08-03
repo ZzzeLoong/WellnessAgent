@@ -21,20 +21,39 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import re
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, List, Optional
 
-from ..core.hitl import (
-    KIND_PROFILE_UPDATE,
-    KIND_SAFETY_RISK,
-    PendingConfirmation,
-    new_confirm_id,
-)
 from .prompts import ORCHESTRATOR_AGGREGATE_PROMPT, ORCHESTRATOR_TRIAGE_PROMPT
+
+# 与 ``agent.py`` / ``service.py`` 同款回落：相对导入要求父包存在（作为
+# ``WellnessAgent.wellnessagent.*`` 导入时成立）；若 repo 根目录本身在
+# ``sys.path`` 上（``python -m benchmark.cli`` / ``uvicorn`` 直跑），则把 repo
+# 的父目录加入 path 后按绝对名导入。缺了这段，``import wellnessagent`` 会以
+# "attempted relative import beyond top-level package" 失败。
+try:
+    from ..core.hitl import (
+        KIND_PROFILE_UPDATE,
+        KIND_SAFETY_RISK,
+        PendingConfirmation,
+        new_confirm_id,
+    )
+except ImportError:
+    _repo_root = Path(__file__).resolve().parents[1]
+    if str(_repo_root.parent) not in sys.path:
+        sys.path.insert(0, str(_repo_root.parent))
+    _hitl = importlib.import_module(f"{_repo_root.name}.core.hitl")
+    KIND_PROFILE_UPDATE = _hitl.KIND_PROFILE_UPDATE
+    KIND_SAFETY_RISK = _hitl.KIND_SAFETY_RISK
+    PendingConfirmation = _hitl.PendingConfirmation
+    new_confirm_id = _hitl.new_confirm_id
 
 ROUTE_SIMPLE = "simple"
 ROUTE_COMPOSITE = "composite"
@@ -79,6 +98,11 @@ class OrchestrationContext:
     message: str
     risk_terms: List[str] = field(default_factory=list)
 
+    # R9 确认层：本轮识餐命中的风险词与摘要（方案 §2.6 安全三层联动第二层）。
+    # 不带图的请求恒为空 → safety_task 的文本与二期字节级一致。
+    vision_risk_hits: List[str] = field(default_factory=list)
+    vision_summary: str = ""
+
     # 各子任务的注入上下文（可选，由主 agent 预填）。
     profile_context: dict = field(default_factory=dict)
     retrieval_context: dict = field(default_factory=dict)
@@ -101,11 +125,20 @@ class OrchestrationContext:
         )
 
     def safety_task(self, planning_summary: str) -> str:
-        return (
-            "请对下列饮食计划做主动安全审查，逐项检查是否触碰用户风险词并给出修改建议。\n\n"
-            f"【用户风险词】\n{', '.join(self.risk_terms) or '（无声明）'}\n\n"
-            f"【待审查计划】\n{planning_summary or '（无）'}"
-        )
+        sections = [
+            "请对下列饮食计划做主动安全审查，逐项检查是否触碰用户风险词并给出修改建议。\n",
+            f"【用户风险词】\n{', '.join(self.risk_terms) or '（无声明）'}\n",
+        ]
+        # R9：图片识别已确定性命中风险词时，把它作为**既成事实**告知审查子代理，
+        # 而不是让它自己从文本里猜（图片内容根本不在文本里）。
+        if self.vision_risk_hits:
+            sections.append(
+                "【图片识别风险（系统已确定性命中，必须处理）】\n"
+                f"识别摘要：{self.vision_summary or '（无）'}\n"
+                f"命中风险词：{', '.join(self.vision_risk_hits)}\n"
+            )
+        sections.append(f"【待审查计划】\n{planning_summary or '（无）'}")
+        return "\n".join(sections)
 
 
 class Orchestrator:

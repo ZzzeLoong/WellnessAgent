@@ -5,6 +5,15 @@
 - 结构化元数据 + 向量索引（SQLite + Qdrant）
 - 同模态检索（跨模态在无CLIP/CLAP依赖时有限）
 - 懒加载编码：文本用 sentence-transformers；图像/音频用轻量确定性哈希向量
+
+Phase 3.0-1（重要）：CLIP/CLAP **不再在构造函数里加载**。
+``__init__`` 只读开关与期望维度，真正的 ``from_pretrained`` 推迟到首次
+编码对应模态时（``_ensure_clip`` / ``_ensure_clap``）。原因：agent 的用户实例
+有 LRU 上限（默认 50），构造期同步加载两个视觉/音频大模型会让启动被拖死；
+而绝大多数会话根本不碰图像/音频。两个开关默认关闭：
+
+- ``WELLNESS_CLIP_ENABLED``（默认 false）：关闭时图像编码走确定性哈希向量
+- ``WELLNESS_CLAP_ENABLED``（默认 false）：关闭时音频编码走确定性哈希向量
 """
 
 from typing import List, Dict, Any, Optional, Union, Tuple
@@ -19,6 +28,28 @@ logger = logging.getLogger(__name__)
 from ..base import BaseMemory, MemoryItem, MemoryConfig
 from ..storage import SQLiteDocumentStore, QdrantVectorStore
 from ..embedding import get_text_embedder, get_dimension
+
+# CLIP / CLAP 在懒加载模式下无法在构造期探测真实投影维度，
+# 而 Qdrant 集合的维度必须在建集合时就定下来，故使用「期望维度」常量。
+# openai/clip-vit-base-patch32 与 laion/clap-htsat-unfused 的 projection_dim 均为 512。
+_DEFAULT_CLIP_DIM = 512
+_DEFAULT_CLAP_DIM = 512
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """读取布尔型环境开关（未设置时用 default）。"""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    """读取整型环境变量（非法值回退 default）。"""
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
 
 class Perception:
     """感知数据实体"""
@@ -81,35 +112,27 @@ class PerceptualMemory(BaseMemory):
         self.text_embedder = get_text_embedder()
         self.vector_dim = get_dimension(getattr(self.text_embedder, 'dimension', 384))
 
-        # 可选加载：图像CLIP与音频CLAP（缺依赖则优雅降级为哈希编码）
+        # ---------------- 图像CLIP / 音频CLAP：懒加载（P3.0-1） ----------------
+        # 构造期只登记开关与期望维度，**绝不触发 from_pretrained**。
         self._clip_model = None
         self._clip_processor = None
         self._clap_model = None
         self._clap_processor = None
-        self._image_dim = None
-        self._audio_dim = None
-        try:
-            from transformers import CLIPModel, CLIPProcessor
-            clip_name = os.getenv("CLIP_MODEL", "openai/clip-vit-base-patch32")
-            self._clip_model = CLIPModel.from_pretrained(clip_name)
-            self._clip_processor = CLIPProcessor.from_pretrained(clip_name)
-            # 估计输出维度
-            self._image_dim = self._clip_model.config.projection_dim if hasattr(self._clip_model.config, 'projection_dim') else 512
-        except Exception:
-            self._clip_model = None
-            self._clip_processor = None
-            self._image_dim = self.vector_dim
-        try:
-            from transformers import ClapProcessor, ClapModel
-            clap_name = os.getenv("CLAP_MODEL", "laion/clap-htsat-unfused")
-            self._clap_model = ClapModel.from_pretrained(clap_name)
-            self._clap_processor = ClapProcessor.from_pretrained(clap_name)
-            # 估计输出维度
-            self._audio_dim = getattr(self._clap_model.config, 'projection_dim', None) or 512
-        except Exception:
-            self._clap_model = None
-            self._clap_processor = None
-            self._audio_dim = self.vector_dim
+        self._clip_enabled = _env_flag("WELLNESS_CLIP_ENABLED", False)
+        self._clap_enabled = _env_flag("WELLNESS_CLAP_ENABLED", False)
+        # 加载尝试标记：失败后不再反复重试（避免每张图都付一次超时代价）
+        self._clip_load_attempted = False
+        self._clap_load_attempted = False
+        self._clip_projection_dim: Optional[int] = None
+        self._clap_projection_dim: Optional[int] = None
+        # 集合维度：启用编码器时用期望维度（可用 CLIP_VECTOR_DIM/CLAP_VECTOR_DIM 覆盖），
+        # 关闭时退化为文本维度（哈希编码按此维度产出）。
+        self._image_dim = (
+            _env_int("CLIP_VECTOR_DIM", _DEFAULT_CLIP_DIM) if self._clip_enabled else self.vector_dim
+        )
+        self._audio_dim = (
+            _env_int("CLAP_VECTOR_DIM", _DEFAULT_CLAP_DIM) if self._clap_enabled else self.vector_dim
+        )
 
         # 向量存储（Qdrant）— 按模态拆分集合，避免维度冲突，使用连接管理器避免重复连接
         from ..storage.qdrant_store import QdrantConnectionManager
@@ -326,7 +349,11 @@ class PerceptualMemory(BaseMemory):
             try:
                 perception = self._encode_perception(raw or "", modality, memory_id)
                 payload = self.doc_store.get_memory(memory_id) or {}
-                self.vector_store.add_vectors(
+                # P3.0-2：本类只有 self.vector_stores（按模态拆分的 dict），
+                # 历史代码误写 self.vector_store 导致 AttributeError 被下方
+                # except 静默吞掉 —— 向量永不更新。改走模态解析器。
+                store = self._get_vector_store_for_modality(modality)
+                store.add_vectors(
                     vectors=[perception.encoding],
                     metadata=[{
                         "memory_id": memory_id,
@@ -579,8 +606,11 @@ class PerceptualMemory(BaseMemory):
             return self._hash_to_vector(str(image_data), self._get_dim_for_modality("image"))
 
     def _image_encoder(self, image_data: Any) -> List[float]:
-        """图像编码器（优先CLIP，不可用则哈希）"""
-        if self._clip_model is None or self._clip_processor is None:
+        """图像编码器（优先CLIP，不可用则哈希）
+
+        P3.0-1：CLIP 在此处按需加载（``_ensure_clip``），构造期不加载。
+        """
+        if not self._ensure_clip():
             return self._image_encoder_hash(image_data)
         try:
             from PIL import Image
@@ -616,8 +646,11 @@ class PerceptualMemory(BaseMemory):
             return self._hash_to_vector(str(audio_data), self._get_dim_for_modality("audio"))
 
     def _audio_encoder(self, audio_data: Any) -> List[float]:
-        """音频编码器（优先CLAP，不可用则哈希）"""
-        if self._clap_model is None or self._clap_processor is None:
+        """音频编码器（优先CLAP，不可用则哈希）
+
+        P3.0-1：CLAP 在此处按需加载（``_ensure_clap``），构造期不加载。
+        """
+        if not self._ensure_clap():
             return self._audio_encoder_hash(audio_data)
         try:
             import numpy as np
@@ -695,6 +728,77 @@ class PerceptualMemory(BaseMemory):
                     torch.set_grad_enabled(self.prev)
             except Exception:
                 pass
+
+    # ------------------------------------------------ 懒加载编码器（P3.0-1）
+    def _ensure_clip(self) -> bool:
+        """确保 CLIP 已加载，返回是否可用。
+
+        - ``WELLNESS_CLIP_ENABLED`` 为假 → 直接 False（不 import transformers）
+        - 已加载 → True
+        - 曾尝试并失败 → False（不重复尝试）
+        """
+        if not self._clip_enabled:
+            return False
+        if self._clip_model is not None and self._clip_processor is not None:
+            return True
+        if self._clip_load_attempted:
+            return False
+        self._clip_load_attempted = True
+        try:
+            from transformers import CLIPModel, CLIPProcessor
+            clip_name = os.getenv("CLIP_MODEL", "openai/clip-vit-base-patch32")
+            self._clip_model = CLIPModel.from_pretrained(clip_name)
+            self._clip_processor = CLIPProcessor.from_pretrained(clip_name)
+            self._clip_projection_dim = getattr(
+                getattr(self._clip_model, "config", None), "projection_dim", None
+            )
+            if self._clip_projection_dim and int(self._clip_projection_dim) != int(self._image_dim):
+                # 集合维度已在构造期定下，向量由 _encode_data 统一裁剪/补零。
+                logger.warning(
+                    "CLIP 投影维度 %s 与集合维度 %s 不一致，向量将被裁剪/补零；"
+                    "可设置 CLIP_VECTOR_DIM 对齐。",
+                    self._clip_projection_dim,
+                    self._image_dim,
+                )
+            logger.info("CLIP 懒加载完成: %s", clip_name)
+            return True
+        except Exception as exc:
+            logger.warning("CLIP 加载失败，图像编码回退为哈希向量: %s", exc)
+            self._clip_model = None
+            self._clip_processor = None
+            return False
+
+    def _ensure_clap(self) -> bool:
+        """确保 CLAP 已加载，返回是否可用（语义同 ``_ensure_clip``）。"""
+        if not self._clap_enabled:
+            return False
+        if self._clap_model is not None and self._clap_processor is not None:
+            return True
+        if self._clap_load_attempted:
+            return False
+        self._clap_load_attempted = True
+        try:
+            from transformers import ClapProcessor, ClapModel
+            clap_name = os.getenv("CLAP_MODEL", "laion/clap-htsat-unfused")
+            self._clap_model = ClapModel.from_pretrained(clap_name)
+            self._clap_processor = ClapProcessor.from_pretrained(clap_name)
+            self._clap_projection_dim = getattr(
+                getattr(self._clap_model, "config", None), "projection_dim", None
+            )
+            if self._clap_projection_dim and int(self._clap_projection_dim) != int(self._audio_dim):
+                logger.warning(
+                    "CLAP 投影维度 %s 与集合维度 %s 不一致，向量将被裁剪/补零；"
+                    "可设置 CLAP_VECTOR_DIM 对齐。",
+                    self._clap_projection_dim,
+                    self._audio_dim,
+                )
+            logger.info("CLAP 懒加载完成: %s", clap_name)
+            return True
+        except Exception as exc:
+            logger.warning("CLAP 加载失败，音频编码回退为哈希向量: %s", exc)
+            self._clap_model = None
+            self._clap_processor = None
+            return False
 
     def _get_vector_store_for_modality(self, modality: Optional[str]) -> QdrantVectorStore:
         mod = (modality or "text").lower()

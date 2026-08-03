@@ -4,7 +4,15 @@ from datetime import datetime
 
 import pytest
 
-from core.message import Message
+from core.message import (
+    MEDIA_PLACEHOLDER,
+    MEDIA_URL_SCHEME,
+    Message,
+    is_media_ref,
+    make_image_part,
+    make_text_part,
+    media_ref_id,
+)
 
 
 # ------------------------------------------------------------------ 构造
@@ -195,4 +203,273 @@ class TestMessageStr:
     def test_str(self):
         m = Message("hello", "user")
         assert str(m) == "[user] hello"
+
+    def test_str_with_media(self):
+        m = Message([make_text_part("这是什么"), make_image_part("f1")], "user")
+        assert str(m) == f"[user] 这是什么 {MEDIA_PLACEHOLDER}"
+
+
+# ================================================================== R9 多模态
+# ------------------------------------------------------------------ 分片构造器
+class TestContentPartHelpers:
+    """``make_text_part`` / ``make_image_part`` / 引用解析。"""
+
+    def test_make_text_part(self):
+        assert make_text_part("hi") == {"type": "text", "text": "hi"}
+
+    def test_make_image_part_default_detail(self):
+        part = make_image_part("abc123")
+        assert part["type"] == "image_url"
+        assert part["image_url"]["url"] == f"{MEDIA_URL_SCHEME}abc123"
+        assert part["image_url"]["detail"] == "auto"
+
+    def test_make_image_part_custom_detail(self):
+        part = make_image_part("abc123", detail="high")
+        assert part["image_url"]["detail"] == "high"
+
+    def test_make_image_part_never_contains_base64(self):
+        """§2.2 硬约束：content 里绝不出现 base64 / data-url。"""
+        part = make_image_part("abc123")
+        serialized = str(part)
+        assert "base64" not in serialized
+        assert "data:image" not in serialized
+
+    def test_is_media_ref_true(self):
+        assert is_media_ref(f"{MEDIA_URL_SCHEME}x") is True
+
+    def test_is_media_ref_false_for_http(self):
+        assert is_media_ref("https://example.com/a.jpg") is False
+
+    def test_is_media_ref_false_for_non_str(self):
+        assert is_media_ref(None) is False
+        assert is_media_ref(123) is False
+
+    def test_media_ref_id_strips_scheme(self):
+        assert media_ref_id(f"{MEDIA_URL_SCHEME}deadbeef") == "deadbeef"
+
+    def test_media_ref_id_passthrough(self):
+        assert media_ref_id("https://x/y.png") == "https://x/y.png"
+
+
+# ------------------------------------------------------------------ C2 纯文本不变形
+class TestConstraintC2TextNeverMorphs:
+    """C2：纯文本一律存 ``str``，绝不规范化成 list。"""
+
+    def test_plain_text_stays_str(self):
+        m = Message("hello", "user")
+        assert isinstance(m.content, str)
+        assert m.content == "hello"
+
+    def test_plain_text_to_openai_exact_shape(self):
+        """一期精确断言必须原样通过。"""
+        assert Message("hello", "user").to_openai() == {
+            "role": "user",
+            "content": "hello",
+        }
+
+    def test_text_only_list_is_flattened_to_str(self):
+        m = Message([make_text_part("a"), make_text_part("b")], "user")
+        assert isinstance(m.content, str)
+        assert m.content == "a b"
+
+    def test_text_only_list_to_openai_is_str(self):
+        m = Message([make_text_part("only text")], "user")
+        assert m.to_openai() == {"role": "user", "content": "only text"}
+
+    def test_none_content_stays_none(self):
+        m = Message(None, "user")
+        assert m.content is None
+
+    def test_to_dict_plain_text_unchanged(self):
+        d = Message("hello", "user").to_dict()
+        assert d["content"] == "hello"
+
+
+# ------------------------------------------------------------------ C1 角色限制
+class TestConstraintC1UserOnly:
+    """C1：只有 ``user`` 角色允许 list content。"""
+
+    def test_user_keeps_list(self):
+        m = Message([make_text_part("看图"), make_image_part("f1")], "user")
+        assert isinstance(m.content, list)
+        assert len(m.content) == 2
+
+    @pytest.mark.parametrize("role", ["assistant", "system", "tool", "summary"])
+    def test_non_user_roles_flatten_to_str(self, role):
+        m = Message([make_text_part("看图"), make_image_part("f1")], role)
+        assert isinstance(m.content, str)
+        assert m.content == f"看图 {MEDIA_PLACEHOLDER}"
+
+    def test_tool_message_never_multimodal(self):
+        """tool 消息的 API 不接受多模态。"""
+        m = Message([make_image_part("f1")], "tool", tool_call_id="c1")
+        assert isinstance(m.content, str)
+        assert m.to_openai()["content"] == MEDIA_PLACEHOLDER
+
+    def test_unknown_part_type_flattened_with_label(self):
+        m = Message([{"type": "audio", "url": "x"}], "assistant")
+        assert m.content == "[audio]"
+
+
+# ------------------------------------------------------------------ 派生属性
+class TestTextContent:
+    def test_text_content_of_str(self):
+        assert Message("hello", "user").text_content == "hello"
+
+    def test_text_content_of_none(self):
+        assert Message(None, "user").text_content == ""
+
+    def test_text_content_of_list_joins_text_parts(self):
+        m = Message(
+            [make_text_part("这盘"), make_image_part("f1"), make_text_part("多少卡")],
+            "user",
+        )
+        assert m.text_content == f"这盘 {MEDIA_PLACEHOLDER} 多少卡"
+
+    def test_text_content_image_only(self):
+        m = Message([make_image_part("f1")], "user")
+        assert m.text_content == MEDIA_PLACEHOLDER
+
+    def test_text_content_skips_empty_text_parts(self):
+        m = Message([make_text_part(""), make_image_part("f1")], "user")
+        assert m.text_content == MEDIA_PLACEHOLDER
+
+
+class TestHasMedia:
+    def test_false_for_str(self):
+        assert Message("hello", "user").has_media is False
+
+    def test_false_for_none(self):
+        assert Message(None, "user").has_media is False
+
+    def test_true_for_image_list(self):
+        assert Message([make_image_part("f1")], "user").has_media is True
+
+    def test_false_after_text_only_flatten(self):
+        assert Message([make_text_part("a")], "user").has_media is False
+
+    def test_false_for_flattened_non_user_role(self):
+        assert Message([make_image_part("f1")], "assistant").has_media is False
+
+
+class TestMediaRefs:
+    def test_empty_for_str_content(self):
+        assert Message("hello", "user").media_refs() == []
+
+    def test_single_ref(self):
+        m = Message([make_image_part("aaa")], "user")
+        assert m.media_refs() == ["aaa"]
+
+    def test_multiple_refs_in_order(self):
+        m = Message(
+            [make_image_part("a1"), make_text_part("和"), make_image_part("b2")],
+            "user",
+        )
+        assert m.media_refs() == ["a1", "b2"]
+
+    def test_ignores_external_urls(self):
+        m = Message(
+            [
+                make_image_part("a1"),
+                {"type": "image_url", "image_url": {"url": "https://x/y.png"}},
+            ],
+            "user",
+        )
+        assert m.media_refs() == ["a1"]
+
+
+# ------------------------------------------------------------------ C3 resolver
+class TestConstraintC3Resolver:
+    """C3：``resolver`` 缺省时 list content 降级为 ``text_content``。"""
+
+    def test_no_resolver_degrades_to_text(self):
+        m = Message([make_text_part("这是什么"), make_image_part("f1")], "user")
+        d = m.to_openai()
+        assert d == {"role": "user", "content": f"这是什么 {MEDIA_PLACEHOLDER}"}
+
+    def test_resolver_expands_to_data_url(self):
+        m = Message([make_text_part("这是什么"), make_image_part("f1")], "user")
+        d = m.to_openai(resolver=lambda fid: f"data:image/jpeg;base64,BODY-{fid}")
+        assert isinstance(d["content"], list)
+        assert d["content"][0] == {"type": "text", "text": "这是什么"}
+        assert d["content"][1]["image_url"]["url"] == "data:image/jpeg;base64,BODY-f1"
+        assert d["content"][1]["image_url"]["detail"] == "auto"
+
+    def test_resolver_does_not_mutate_original_content(self):
+        """解析必须走深拷贝，原 content 仍只存短引用。"""
+        m = Message([make_image_part("f1")], "user")
+        m.to_openai(resolver=lambda fid: "data:image/png;base64,ZZZ")
+        assert m.content[0]["image_url"]["url"] == f"{MEDIA_URL_SCHEME}f1"
+
+    def test_resolver_failure_degrades_to_placeholder(self):
+        def boom(_fid):
+            raise RuntimeError("file gone")
+
+        m = Message([make_text_part("看"), make_image_part("f1")], "user")
+        d = m.to_openai(resolver=boom)
+        assert d["content"] == [
+            {"type": "text", "text": "看"},
+            {"type": "text", "text": MEDIA_PLACEHOLDER},
+        ]
+
+    def test_resolver_empty_result_degrades_to_placeholder(self):
+        m = Message([make_image_part("f1")], "user")
+        d = m.to_openai(resolver=lambda _fid: "")
+        assert d["content"] == [{"type": "text", "text": MEDIA_PLACEHOLDER}]
+
+    def test_resolver_ignored_for_str_content(self):
+        called = []
+
+        def resolver(fid):
+            called.append(fid)
+            return "x"
+
+        assert Message("plain", "user").to_openai(resolver=resolver) == {
+            "role": "user",
+            "content": "plain",
+        }
+        assert called == []
+
+    def test_resolver_leaves_external_urls_alone(self):
+        m = Message(
+            [
+                make_image_part("a1"),
+                {"type": "image_url", "image_url": {"url": "https://x/y.png"}},
+            ],
+            "user",
+        )
+        d = m.to_openai(resolver=lambda fid: f"data:image/png;base64,{fid}")
+        assert d["content"][0]["image_url"]["url"] == "data:image/png;base64,a1"
+        assert d["content"][1]["image_url"]["url"] == "https://x/y.png"
+
+
+# ------------------------------------------------------------------ 多模态落盘
+class TestMultimodalSerialization:
+    def test_to_dict_keeps_list_of_short_refs(self):
+        m = Message([make_text_part("看"), make_image_part("sha256abc")], "user")
+        d = m.to_dict()
+        assert isinstance(d["content"], list)
+        assert d["content"][1]["image_url"]["url"] == f"{MEDIA_URL_SCHEME}sha256abc"
+
+    def test_to_dict_is_json_serializable(self):
+        import json
+
+        m = Message([make_text_part("看"), make_image_part("f1")], "user")
+        assert json.loads(json.dumps(m.to_dict(), ensure_ascii=False))["content"]
+
+    def test_roundtrip_preserves_media(self):
+        original = Message([make_text_part("看"), make_image_part("f1")], "user")
+        restored = Message.from_dict(original.to_dict())
+        assert restored.has_media is True
+        assert restored.media_refs() == ["f1"]
+        assert restored.text_content == original.text_content
+
+    def test_serialized_size_stays_tiny(self):
+        """§2.2：单条带图消息落盘应在百字节量级，而非 MB 级 base64。"""
+        import json
+
+        m = Message([make_image_part("a" * 64)], "user")
+        payload = json.dumps(m.to_dict(), ensure_ascii=False)
+        assert len(payload) < 512
+        assert "base64" not in payload
 

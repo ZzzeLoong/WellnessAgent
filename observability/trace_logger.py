@@ -37,6 +37,12 @@ EVENT_TYPES = {
     # 二期 R7 HITL 确认事件（回合边界确认闭环；仅扩集合，向后兼容）。
     "confirm_request",  # {confirm_id, kind, payload}
     "confirm_resume",  # {confirm_id, decision}
+    # 三期 R9 识餐事件（方案 §2.7；仅扩集合，落盘格式不变）。
+    # 注意：payload 里只允许出现 file_id 短引用与文本摘要，**绝不**放 base64
+    # —— _sanitize 对每个字符串跑 4 个正则，base64 会让脱敏开销爆炸（方案 §2.2）。
+    "vision_start",  # {file_ids, model}
+    "vision_result",  # {items_count, risk_hits, latency_ms, summary_preview}
+    "vision_error",  # {message}
 }
 
 _SANITIZE_PATTERNS = [

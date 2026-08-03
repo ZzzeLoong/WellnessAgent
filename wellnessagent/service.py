@@ -144,6 +144,48 @@ class WellnessAgentService:
         )
         return f"✅ 记忆已添加 (ID: {memory_id[:8]}...)"
 
+    def perceptual_note(
+        self,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+        importance: float = 0.6,
+    ) -> str:
+        """把一条感知记忆写入 ``perceptual``（三期 R9，方案 §2.6）。
+
+        走 ``memory_manager.add_memory`` 而**不是** ``memory_tool.run({"action":"add"})``：
+        后者的参数分发只透传 ``content/memory_type/importance/file_path/modality``，
+        会**丢掉整个 metadata**（结构化识别结果、风险命中、file_id 全没了）。
+        与 :meth:`session_note` 保持同一种写法。
+
+        ``content`` 是文本摘要 → 能被既有 ``memory_search`` 检索到；
+        ``metadata['raw_data']`` 是图片本地路径 → 供 CLIP 编码（若启用）。
+        """
+        normalized_content = " ".join((content or "").split())
+        if not normalized_content:
+            return "⚠️ 未提供可记录的感知摘要。"
+
+        if self.memory_tool.current_session_id is None:
+            self.memory_tool.current_session_id = (
+                f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            )
+
+        payload: dict[str, Any] = {
+            "modality": "image",
+            "scope": "long_term",
+            "source": "vision",
+            "timestamp": datetime.now().isoformat(),
+            "session_id": self.memory_tool.current_session_id,
+        }
+        payload.update(metadata or {})
+        memory_id = self.memory_tool.memory_manager.add_memory(
+            content=normalized_content,
+            memory_type="perceptual",
+            importance=importance,
+            metadata=payload,
+            auto_classify=False,
+        )
+        return f"✅ 感知记忆已添加 (ID: {memory_id[:8]}...)"
+
     def session_recall(self, query: str, limit: int = 5) -> str:
         """Retrieve short-lived session context from working memory."""
         return self.memory_tool.run(
