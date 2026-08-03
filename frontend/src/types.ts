@@ -106,6 +106,8 @@ export type ChatResponse = {
   safety?: SafetyInfo;
   orchestration?: OrchestrationInfo;
   confirmation?: ConfirmationInfo | null;
+  // R9：识餐成功时存在
+  vision?: VisionInfo;
 };
 
 export type SubAgentStat = {
@@ -143,7 +145,11 @@ export type StreamEventType =
   | "subagent_start"
   | "subagent_result"
   | "orchestrator_aggregate"
-  | "confirm";
+  | "confirm"
+  // 三期 R9 识餐事件（方案 §2.7）
+  | "vision_start"
+  | "vision_result"
+  | "vision_error";
 
 export type ProfilePayload = {
   allergies: string[];
@@ -159,4 +165,37 @@ export type ProfilePayload = {
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+};
+
+// 三期 R9 多模态类型
+export type Attachment = {
+  file_id: string;
+  kind: string; // "image" | "audio" | "video"
+};
+
+export type UploadResponse = {
+  file_id: string;
+  mime: string;
+  size_bytes: number;
+  width: number;
+  height: number;
+  preview_url?: string;
+};
+
+export type VisionItem = {
+  name: string;
+  confidence: number | null;
+  portion: string;
+};
+
+export type VisionInfo = {
+  items: VisionItem[];
+  ingredients_guess: string[];
+  calories_range: [number, number] | null;
+  macros: Record<string, [number, number]>;
+  summary: string;
+  risk_hits: string[];
+  model: string;
+  latency_ms: number;
+  file_ids: string[];
 };

@@ -603,3 +603,174 @@ button.active {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------------------------------------------------------------- 三期 R9 多模态 */
+.composer-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.attachment-previews {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.attachment-thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #334155;
+}
+
+.attachment-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.upload-error {
+  color: #fecaca;
+  font-size: 0.8rem;
+}
+
+.message-attachments {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.message-attachment-img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #334155;
+}
+
+.vision-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.vision-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #334155;
+  border-top-color: #60a5fa;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.vision-card {
+  border-radius: 12px;
+  padding: 0.85rem;
+  background: #0b1120;
+  border: 1px solid #1f2937;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.vision-card.has-risk {
+  border-color: #b91c1c;
+  background: #1a0808;
+}
+
+.vision-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.vision-icon {
+  font-size: 1.1rem;
+}
+
+.vision-title {
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.vision-model,
+.vision-latency {
+  font-size: 0.72rem;
+  margin-left: auto;
+}
+
+.vision-summary {
+  margin: 0;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.vision-items {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.vision-tag {
+  background: #1e293b;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
+
+.vision-ingredients,
+.vision-calories {
+  color: #cbd5e1;
+}
+
+.vision-risk-banner {
+  background: #7f1d1d;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  color: #fecaca;
+}
+
+.risk-pill {
+  background: #991b1b;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}

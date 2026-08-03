@@ -9,6 +9,7 @@ import { StatePanel } from "./StatePanel";
 import { TracePanel } from "./TracePanel";
 import {
   AppState,
+  Attachment,
   ChatMessage,
   ChatResponse,
   ConfirmationDecision,
@@ -19,6 +20,7 @@ import {
   StepRecord,
   ToolCall,
   ToolResult,
+  VisionInfo,
 } from "../types";
 
 type ChatPageProps = {
@@ -79,6 +81,10 @@ export function ChatPage({ userId, onUserIdChange }: ChatPageProps) {
   const [profileStatus, setProfileStatus] = useState("");
   const [orchestration, setOrchestration] = useState<OrchestrationInfo>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationInfo | null>(null);
+  // R9 多模态状态
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [vision, setVision] = useState<VisionInfo | null>(null);
+  const [visionLoading, setVisionLoading] = useState(false);
 
   const knowledgebaseFiles = useMemo(() => state?.knowledgebase_files ?? [], [state]);
 
@@ -216,6 +222,14 @@ export function ChatPage({ userId, onUserIdChange }: ChatPageProps) {
       });
     } else if (type === "confirm") {
       setPendingConfirmation(data as unknown as ConfirmationInfo);
+    } else if (type === "vision_start") {
+      setVisionLoading(true);
+      setVision(null);
+    } else if (type === "vision_result") {
+      setVisionLoading(false);
+      setVision(data as unknown as VisionInfo);
+    } else if (type === "vision_error") {
+      setVisionLoading(false);
     } else if (type === "agent_finish") {
       if (Array.isArray(data.steps)) {
         setSteps(data.steps as StepRecord[]);
@@ -233,6 +247,13 @@ export function ChatPage({ userId, onUserIdChange }: ChatPageProps) {
       if (data.confirmation) {
         setPendingConfirmation(data.confirmation as ConfirmationInfo);
       }
+      // R9: 最终响应里的 vision 字段覆盖增量
+      if (data.vision) {
+        setVision(data.vision as VisionInfo);
+      } else {
+        setVision(null);
+      }
+      setVisionLoading(false);
       // 若最终答案与增量拼接不一致，以最终答案为准。
       if (typeof data.answer === "string") {
         setMessages((current) => replaceAssistant(current, assistantIndex, String(data.answer)));
@@ -244,12 +265,21 @@ export function ChatPage({ userId, onUserIdChange }: ChatPageProps) {
     }
   }
 
-  async function handleSend(message: string, confirmation?: ConfirmationDecision) {
+  async function handleSend(
+    message: string,
+    attachments?: Attachment[],
+    confirmation?: ConfirmationDecision,
+  ) {
     setIsLoading(true);
     setProfileStatus("");
     setSteps([]);
     setSafety(null);
     setTerminatedReason("running");
+    setVision(null);
+    setVisionLoading(false);
+    // 记录本轮附件供 MessageList 展示图片气泡
+    const currentAttachments = attachments ?? [];
+    setPendingAttachments(currentAttachments);
     if (!confirmation) {
       // 新一轮请求：清空上一轮的编排可视化。确认恢复轮保留展示。
       setOrchestration(null);
@@ -270,11 +300,17 @@ export function ChatPage({ userId, onUserIdChange }: ChatPageProps) {
       const response = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, message, session_id: sessionId, confirmation }),
+        body: JSON.stringify({
+          user_id: userId,
+          message,
+          session_id: sessionId,
+          confirmation,
+          attachments: currentAttachments,
+        }),
       });
       if (!response.ok || !response.body) {
         // 回退到非流式接口。
-        await handleSendNonStream(message, assistantIndex, confirmation);
+        await handleSendNonStream(message, assistantIndex, currentAttachments, confirmation);
         return;
       }
 
@@ -297,6 +333,7 @@ export function ChatPage({ userId, onUserIdChange }: ChatPageProps) {
       const content = error instanceof Error ? error.message : "发生未知错误";
       setMessages((current) => replaceAssistant(current, assistantIndex, content));
     } finally {
+      setVisionLoading(false);
       setIsLoading(false);
       if (!activeFileName && state?.knowledgebase_files[0]) {
         await handleSelectKnowledgebaseFile(state.knowledgebase_files[0].name);
@@ -307,12 +344,19 @@ export function ChatPage({ userId, onUserIdChange }: ChatPageProps) {
   async function handleSendNonStream(
     message: string,
     assistantIndex: number,
+    attachments: Attachment[],
     confirmation?: ConfirmationDecision,
   ) {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId, message, session_id: sessionId, confirmation }),
+      body: JSON.stringify({
+        user_id: userId,
+        message,
+        session_id: sessionId,
+        confirmation,
+        attachments,
+      }),
     });
     const payload: ChatResponse = await response.json();
     if (!response.ok) {
@@ -325,6 +369,7 @@ export function ChatPage({ userId, onUserIdChange }: ChatPageProps) {
     setState(payload.state);
     setOrchestration(payload.orchestration ?? null);
     setPendingConfirmation(payload.confirmation ?? null);
+    setVision(payload.vision ?? null);
     if (payload.session_id) {
       setSessionId(payload.session_id);
     }
@@ -339,7 +384,7 @@ export function ChatPage({ userId, onUserIdChange }: ChatPageProps) {
         : decision.decision === "reject"
           ? "（已拒绝）"
           : "（已修改后继续）";
-    await handleSend(label, decision);
+    await handleSend(label, undefined, decision);
   }
 
   async function handleSelectKnowledgebaseFile(name: string) {
@@ -384,8 +429,16 @@ export function ChatPage({ userId, onUserIdChange }: ChatPageProps) {
 
       <section className="top-layout">
         <div className="chat-column">
-          <ChatComposer isLoading={isLoading} onSend={(m) => handleSend(m)} />
-          <MessageList messages={messages} />
+          <ChatComposer
+            isLoading={isLoading}
+            onSend={(m, atts) => handleSend(m, atts)}
+          />
+          <MessageList
+            messages={messages}
+            attachments={pendingAttachments}
+            vision={vision}
+            visionLoading={visionLoading}
+          />
           <OrchestrationPanel orchestration={orchestration} />
         </div>
         <TracePanel steps={steps} terminatedReason={terminatedReason} safety={safety} />
