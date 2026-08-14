@@ -41,7 +41,7 @@ build/
 # 运行时产物（trace/session/tool-output/kb 种子标记）
 logs/
 
-docs/
+# docs/ 已纳入版本控制（设计文档需随代码一起留存）
 
 # benchmark/reports/*
 # !benchmark/reports/.gitkeep

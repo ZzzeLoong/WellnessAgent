@@ -148,6 +148,10 @@ SUBAGENT_RETRIEVAL_PROMPT = """你是知识检索子代理。你的职责：针�
 
 
 # --- planning（饮食规划） -------------------------------------------------- #
+# 三期 R11：answer 末尾新增机器可读 JSON 块（与 profile/safety 同款范式），
+# 由 ``SubAgent._extract_trailing_json`` 解析进 ``result.data``，
+# 直接充当 ``AdviceRecord.plan_digest``（方案 §3.2）。
+# 模型不产出该块时，``advice_store`` 侧有确定性回落，不影响建议记录。
 SUBAGENT_PLANNING_PROMPT = """你是饮食规划子代理。你的职责：依据编排器注入的画像上下文与检索要点，遵守全部约束，产出结构化的饮食/食谱计划。
 
 约束：
@@ -156,7 +160,13 @@ SUBAGENT_PLANNING_PROMPT = """你是饮食规划子代理。你的职责：依�
 3. 计划要具体可执行（按天/按餐给出），并显式说明用到了哪些约束（constraints_used）。
 4. 若某约束与常见推荐冲突，以用户约束为准，替换冲突食材。
 
-完成后调用 finish，answer 给出结构化计划正文（可按天/按餐组织）与所依据的约束清单。"""
+完成后调用 finish，answer 给出结构化计划正文（可按天/按餐组织）与所依据的约束清单。
+
+然后在 answer **末尾单独另起一行**附一个机器可读的 JSON 块（供编排器记录建议、后续回访，用户不会看到）：
+```json
+{"headline": "一句话概括这份计划（20 字内，用于日后回访提问）", "days": 天数或 null, "meals": ["涉及的餐次，如 早餐/午餐/晚餐"], "constraints_used": ["实际遵守的关键约束"], "key_items": ["计划里的代表性食物，至多 5 个"]}
+```
+其中 `headline` 必填且要能让用户一眼想起这份建议（例如"7 天减脂午餐备餐计划"）；无法确定的字段用 null 或空列表，不要编造。"""
 
 
 # --- safety（主动安全审查） ------------------------------------------------ #
@@ -259,3 +269,96 @@ def vision_context_block(summary: str, items: list[str] | None = None) -> str:
         lines.append(f"识别到的食物：{'、'.join(items)}")
     lines.append("回答时请与上述识别结果保持一致；如你看图后判断识别有误，以你的判断为准并说明。")
     return "\n".join(lines)
+
+
+# =========================================================================== #
+# 三期 R11：执行反馈闭环（方案 §3.4 通道 A —— system 注入待回访建议）。
+# 复用一期「上下文注入 system 消息」的既有机制，agent 会在合适时机自然问起，
+# 无需改主循环。无待回访建议时返回空串，system 消息与二期字节级一致。
+# =========================================================================== #
+
+def pending_advice_block(items: list[dict]) -> str:
+    """把待回访的历史建议渲染为 system 注入段（方案 §3.4 通道 A）。
+
+    Args:
+        items: 形如 ``[{"advice_id": ..., "summary": ..., "age_text": "3天前",
+            "status_text": "尚未收到反馈"}, ...]``，由
+            ``WellnessPlanningAgent._build_pending_advice_items`` 组装。
+
+    Returns:
+        可直接拼进 system 的文本块；``items`` 为空时返回 ``""``（**不注入**）。
+    """
+    if not items:
+        return ""
+    lines = ["", "### 待回访的历史建议"]
+    for item in items:
+        advice_id = str(item.get("advice_id", "")).strip()
+        summary = str(item.get("summary", "")).strip() or "（无摘要）"
+        age_text = str(item.get("age_text", "")).strip()
+        status_text = str(item.get("status_text", "")).strip()
+        suffix = "，".join(part for part in (age_text, status_text) if part)
+        lines.append(f"- [{advice_id}] {summary}" + (f"（{suffix}）" if suffix else ""))
+    lines.append(
+        "（若用户提到相关执行情况，请调用 advice_feedback 记录；"
+        "也可在话题自然时主动询问执行效果。不要在每一轮都追问，避免打扰。）"
+    )
+    return "\n".join(lines)
+
+
+# =========================================================================== #
+# 三期 R10：主动推送内容生成（方案 §4.3）。
+# 走「轻量单次 LLM」而非 composite pipeline：推送轮没有用户在场，
+# composite 的 HITL 关卡一旦挂起就无人确认，会永久卡住。
+# =========================================================================== #
+
+PUSH_GENERATION_PROMPT = """你是一位健康饮食助手，正在为用户生成一条**主动推送**消息（用户此刻没有在跟你对话）。
+
+要求：
+1. 内容必须**基于下面给出的用户画像与历史信息**，明确体现个性化；绝不能是放之四海皆准的通用模板。
+2. 严格避开用户的过敏原与忌口，这是硬红线。
+3. 简短克制：这是一条推送，不是一篇文章。正文控制在 150 字以内。
+4. 若给出「待回访的建议」，请在正文里自然地问一句执行情况。
+5. 直接输出面向用户的正文，不要寒暄开场白，不要输出 JSON，不要提及"推送""系统"等内部词汇。
+
+先输出一行标题（不超过 20 字），然后空一行，再输出正文。"""
+
+
+def push_generation_task(
+    kind: str,
+    profile_summary: str = "",
+    memory_summary: str = "",
+    pending_advice: list[dict] | None = None,
+    date_text: str = "",
+) -> str:
+    """组装推送生成的 user 侧提示（方案 §4.3）。
+
+    Args:
+        kind: ``daily_suggestion`` / ``followup`` / ``daily_suggestion+followup``。
+        profile_summary: 画像摘要（个性化的主要来源）。
+        memory_summary: 提纯长期记忆摘要。
+        pending_advice: 待回访建议（``summary`` / ``age_text``）。
+        date_text: 推送日期文本。
+    """
+    sections: list[str] = []
+    if date_text:
+        sections.append(f"【今天的日期】\n{date_text}")
+    sections.append(f"【用户画像】\n{profile_summary.strip() or '（暂无画像信息）'}")
+    if memory_summary.strip():
+        sections.append(f"【长期记忆要点】\n{memory_summary.strip()}")
+
+    if pending_advice:
+        lines = []
+        for item in pending_advice:
+            summary = str(item.get("summary", "")).strip() or "（无摘要）"
+            age_text = str(item.get("age_text", "")).strip()
+            lines.append(f"- {summary}" + (f"（{age_text}给出）" if age_text else ""))
+        sections.append("【待回访的建议】\n" + "\n".join(lines))
+
+    if kind == "followup":
+        goal = "请生成一条**回访**推送：询问上述建议的执行情况，并根据画像给一点简短的鼓励或调整建议。"
+    elif "followup" in kind:
+        goal = "请生成一条推送：既给出今天的饮食建议，也自然地回访上述历史建议的执行情况。"
+    else:
+        goal = "请生成一条**当日饮食建议**推送：结合画像与长期记忆，给今天的饮食一个具体、可执行的小建议。"
+    sections.append(f"【本次任务】\n{goal}")
+    return "\n\n".join(sections)

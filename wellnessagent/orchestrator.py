@@ -73,6 +73,11 @@ class OrchestrationResult:
     reason: str = ""
     # R7 HITL：非空则本回合挂起等待用户确认（answer 为本次要展示的确认提示）。
     pending: Optional[PendingConfirmation] = None
+    # R11：planning 子代理的结构化 data（含 answer 末尾 JSON 块解析结果），
+    # 供主 agent 组装 ``AdviceRecord.plan_digest``。**刻意不进 to_dict()**——
+    # 它含 ``final_answer`` 全文，塞进 API 响应会让 payload 翻倍（方案 §9.1
+    # 要求 orchestration 字段保持二期形状）。
+    planning_data: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -312,6 +317,8 @@ class Orchestrator:
             answer=answer,
             subagent_results=[self._result_brief(r) for r in sub_results],
             reason=reason,
+            # R11：透传 planning 的结构化 data 给主 agent 记建议（不进 to_dict）。
+            planning_data=dict(getattr(planning_res, "data", {}) or {}),
         )
 
     # ------------------------------------------------------------------ HITL

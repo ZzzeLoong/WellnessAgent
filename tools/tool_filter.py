@@ -52,6 +52,9 @@ class ReadOnlyFilter(ToolFilter):
         "profile_remove",
         "memory_remember",
         "session_note",
+        # 三期 R11：advice_feedback 会更新建议状态机**并写 episodic 长期记忆**，
+        # 与 memory_remember 同属不可逆写入，必须一并拒绝。
+        "advice_feedback",
     }
 
     def __init__(self, additional_denied: Iterable[str] | None = None):

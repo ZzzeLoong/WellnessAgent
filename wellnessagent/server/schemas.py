@@ -64,3 +64,33 @@ class NewSessionRequest(BaseModel):
     """Request payload to start a fresh conversation session."""
 
     user_id: str = "web_user"
+
+
+class AdviceFeedbackRequest(BaseModel):
+    """R11 建议反馈打标入参（前端手动打标，便于 demo）。"""
+
+    user_id: str = "web_user"
+    advice_id: str = ""  # 留空表示最近一条待回访建议
+    status: str  # adopted | rejected | partial
+    note: str = ""
+
+
+class PushPlanRequest(BaseModel):
+    """R10 推送计划配置入参（满足验收「用户可开启关闭、调整频率」）。
+
+    除 ``user_id`` 外全部可选：只传 ``enabled`` 即可开关，不必回传整份计划。
+    """
+
+    user_id: str = "web_user"
+    enabled: bool | None = None
+    daily_at: str | None = None  # "HH:MM"
+    timezone: str | None = None
+    kinds: list[str] | None = None  # daily_suggestion | followup
+
+
+class PushReadRequest(BaseModel):
+    """R10 推送已读标记入参。"""
+
+    user_id: str = "web_user"
+    push_id: str = ""
+    all_read: bool = False

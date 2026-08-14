@@ -43,6 +43,14 @@ EVENT_TYPES = {
     "vision_start",  # {file_ids, model}
     "vision_result",  # {items_count, risk_hits, latency_ms, summary_preview}
     "vision_error",  # {message}
+    # 三期 R11 执行反馈闭环（方案 §3.6；仅扩集合，落盘格式不变）。
+    "advice_recorded",  # {advice_id, summary_preview}
+    "advice_feedback",  # {advice_id, status}
+    # 三期 R10 主动推送（方案 §4.5）。推送跑在独立 session，其 trace 也独立成文件。
+    "push_scheduled",  # {user_id, kinds, due_at}
+    "push_generated",  # {push_id, kind, title, latency_ms}
+    "push_delivered",  # {push_id, channel}
+    "push_error",  # {message}
 }
 
 _SANITIZE_PATTERNS = [

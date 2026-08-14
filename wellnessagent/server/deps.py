@@ -233,6 +233,107 @@ def vision_enabled() -> bool:
     }
 
 
+# ---------------------------------------------------------------- advice (R11)
+def list_advice(user_id: str, status: str = "", limit: int = 50) -> dict:
+    """列出建议记录及各状态计数（``GET /api/advice/list``）。"""
+    store = get_agent(user_id).advice_store
+    records = store.list(user_id, status=status or None, limit=limit)
+    return {
+        "items": [r.to_dict() for r in records],
+        "counts_by_status": store.counts_by_status(user_id),
+    }
+
+
+def submit_advice_feedback(
+    user_id: str, advice_id: str, status: str, note: str = ""
+) -> dict:
+    """前端手动打标（``POST /api/advice/feedback``，便于 demo）。
+
+    复用 agent 的 ``_advice_feedback`` —— 与模型调用工具**完全同一条路径**，
+    因此状态更新与 episodic 记忆写入两个副作用都不会漏。
+    """
+    agent = get_agent(user_id)
+    message = agent._advice_feedback(advice_id=advice_id, status=status, note=note)
+    ok = message.startswith("✅")
+    return {"ok": ok, "message": message, "advice_id": advice_id}
+
+
+# ---------------------------------------------------------------- push (R10)
+def get_push_plan(user_id: str) -> dict:
+    """读推送计划（``GET /api/push/plan``）。"""
+    from ..scheduler import get_scheduler
+
+    return get_scheduler().plan_store.load(user_id).to_dict()
+
+
+def update_push_plan(user_id: str, **changes) -> dict:
+    """更新推送计划（``POST /api/push/plan``）。
+
+    计划变更后按需拉起/停止 tick 线程：用户在 UI 打开推送时，不必重启进程。
+    """
+    from ..scheduler import get_scheduler
+
+    scheduler = get_scheduler()
+    plan = scheduler.plan_store.update(user_id, **changes)
+    if plan.enabled:
+        scheduler.start()  # 幂等：总开关关闭或已在跑时直接返回 False
+    return plan.to_dict()
+
+
+def run_push_now(user_id: str) -> dict:
+    """立即生成并投递一条推送（``POST /api/push/run-now``，demo 必需）。
+
+    **不受 ``WELLNESS_PUSH_ENABLED`` 与 ``plan.enabled`` 限制** —— 否则演示时
+    得先开全局调度再等到点（方案 §4.2）。
+    """
+    from ..scheduler import get_scheduler
+
+    return get_scheduler().run_now(user_id, mark=False).to_dict()
+
+
+def list_push_inbox(user_id: str, unread_only: bool = False, limit: int = 50) -> dict:
+    """读收件箱（``GET /api/push/inbox``）。"""
+    from ..scheduler import get_scheduler
+
+    inbox = get_scheduler().inbox
+    return {
+        "items": [m.to_dict() for m in inbox.list(user_id, unread_only, limit)],
+        "unread_count": inbox.unread_count(user_id),
+    }
+
+
+def mark_push_read(user_id: str, push_id: str = "", all_read: bool = False) -> dict:
+    """标记已读（``POST /api/push/read``）。``all_read`` 为真时全部标记。"""
+    from ..scheduler import get_scheduler
+
+    inbox = get_scheduler().inbox
+    if all_read:
+        count = inbox.mark_all_read(user_id)
+        return {"ok": True, "marked": count, "unread_count": inbox.unread_count(user_id)}
+    ok = inbox.mark_read(user_id, push_id)
+    return {"ok": ok, "marked": 1 if ok else 0, "unread_count": inbox.unread_count(user_id)}
+
+
+def start_push_scheduler() -> bool:
+    """FastAPI 启动钩子：``WELLNESS_PUSH_ENABLED=true`` 时拉起 tick 线程。"""
+    from ..scheduler import get_scheduler
+
+    try:
+        return get_scheduler().start()
+    except Exception:
+        return False
+
+
+def stop_push_scheduler() -> None:
+    """FastAPI 关闭钩子：停掉 tick 线程。"""
+    from ..scheduler import get_scheduler
+
+    try:
+        get_scheduler().stop()
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------- trace access
 _TRACE_DIR = Path(os.getenv("WELLNESS_TRACE_DIR", "logs/traces"))
 

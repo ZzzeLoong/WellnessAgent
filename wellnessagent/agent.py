@@ -8,6 +8,7 @@ import sys
 from typing import Any, Iterable, Optional
 
 from .prompts import WELLNESS_FALLBACK_JSON_INSTRUCTIONS, WELLNESS_SYSTEM_PROMPT
+from .advice_store import AdviceRecord, AdviceStore, VALID_STATUSES, new_advice_id
 from .guardrails import DietGuardrails
 from .schemas import WellnessProfile
 from .service import WellnessAgentService
@@ -85,8 +86,52 @@ except ImportError:
     ToolRegistry = registry_module.ToolRegistry
 
 
+def _humanize_age(created_at: str, now: Optional[datetime] = None) -> str:
+    """把 ISO 时间渲染为「3天前 / 5小时前 / 刚刚」（R11 回访注入用）。
+
+    解析失败返回空串——注入侧会把它当作「没有时间信息」跳过，而不是显示一段
+    机器可读的原始时间戳。
+    """
+    try:
+        created = datetime.fromisoformat((created_at or "").strip())
+    except (TypeError, ValueError):
+        return ""
+    delta = (now or datetime.now()) - created
+    seconds = delta.total_seconds()
+    if seconds < 0:
+        return ""
+    days = int(seconds // 86400)
+    if days >= 1:
+        return f"{days}天前"
+    hours = int(seconds // 3600)
+    if hours >= 1:
+        return f"{hours}小时前"
+    minutes = int(seconds // 60)
+    return f"{minutes}分钟前" if minutes >= 1 else "刚刚"
+
+
 class WellnessPlanningAgent(ReActAgent):
     """A ReAct-based nutrition and wellness planning agent."""
+
+    # ------------------------------------------------------------------ 类级默认
+    # 三期新增状态一律给**类级默认值**，而不是只在 __init__ 里赋值。
+    # 原因：一/二期大量单测用 ``WellnessPlanningAgent.__new__(...)`` + 手工装配
+    # 桩属性来绕开重依赖（memory/RAG/LLM），根本不会跑 __init__。只要新状态仅存在
+    # 于实例上，这些既有测试就会集体 AttributeError —— 而方案 §0.2 的硬约束是
+    # 「三期只新增测试，不改既有断言」。类级默认让 __new__ 构造的实例天然可用。
+    _push_mode: bool = False
+    _advice_store: Optional[AdviceStore] = None
+
+    @property
+    def advice_store(self) -> AdviceStore:
+        """建议记录存储（R11）。懒构造 —— 只在真正用到时才碰文件系统。"""
+        if self._advice_store is None:
+            self._advice_store = AdviceStore()
+        return self._advice_store
+
+    @advice_store.setter
+    def advice_store(self, store: Optional[AdviceStore]) -> None:
+        self._advice_store = store
 
     def __init__(
         self,
@@ -161,6 +206,12 @@ class WellnessPlanningAgent(ReActAgent):
         self._turn_user_message = None
         # 本轮附件的 file_id（供 system 注入与 OrchestrationContext 透传）。
         self._turn_vision_file_ids: list[str] = []
+
+        # 建议记录与执行反馈（R11）。JSONL 独立存储，不占用 episodic 查询路径。
+        self.advice_store = AdviceStore()
+        # R10：推送轮标记。为 True 时跳过 distill（不让机器自说自话沉淀为
+        # 用户偏好）与待回访 system 注入（推送 prompt 自带回访段，避免重复）。
+        self._push_mode = False
 
         # Trace（R5）。默认按 user_id 落盘，session_id 在开启会话时确定。
         self._trace_enabled = (
@@ -266,6 +317,30 @@ class WellnessPlanningAgent(ReActAgent):
                 "查看长期记忆高层摘要。输入留空即可。",
                 self._memory_digest,
             )
+            # R11：执行反馈闭环（方案 §3.5）。归入 memory 组——反馈最终要写进
+            # episodic 长期记忆，与该组语义自洽。
+            tool_registry.register_function(
+                "advice_feedback",
+                "记录用户对既往建议的执行反馈。当用户提到某条建议的执行情况时调用。",
+                self._advice_feedback,
+                parameters=[
+                    {
+                        "name": "advice_id",
+                        "type": "string",
+                        "description": "建议 id；不确定时留空表示最近一条待回访建议。",
+                    },
+                    {
+                        "name": "status",
+                        "type": "string",
+                        "description": "adopted（采纳）| rejected（未采纳）| partial（部分采纳）",
+                    },
+                    {
+                        "name": "note",
+                        "type": "string",
+                        "description": "用户原话或要点。",
+                    },
+                ],
+            )
         if self._has_group("rag"):
             tool_registry.register_function(
                 "kb_search",
@@ -338,6 +413,110 @@ class WellnessPlanningAgent(ReActAgent):
         """Summarize long-term memory state."""
         return self.service.memory_digest(limit=10)
 
+    # ------------------------------------------------------------------ R11 反馈
+    def _advice_feedback(
+        self,
+        input_text: str | None = None,
+        advice_id: str = "",
+        status: str = "",
+        note: str = "",
+    ) -> str:
+        """记录用户对既往建议的执行反馈（方案 §3.5）。
+
+        两条副作用，缺一不可：
+
+        1. 更新 ``advice_store`` 的状态机 → 该建议不再出现在待回访队列；
+        2. 写一条 ``category="advice_feedback"`` 的 episodic 记忆 → 进入既有的
+           「提纯记忆摘要」注入链路，**从而真正影响后续规划倾向**（这正是 R11
+           验收标准「用户反馈能实际改变后续建议倾向」的落点）。
+
+        ``advice_id`` 留空时回落到最近一条 pending 建议 —— 用户说「那个食谱我
+        试了」时，模型通常给不出内部 id。
+        """
+        normalized_status = (status or "").strip().lower()
+        if normalized_status not in VALID_STATUSES:
+            return (
+                f"⚠️ status 无效：{status or '(空)'}。"
+                f"可选值：{', '.join(sorted(VALID_STATUSES))}。"
+            )
+
+        target_id = (advice_id or "").strip()
+        record = None
+        if target_id:
+            record = self.advice_store.get(self.user_id, target_id)
+            if record is None:
+                return f"⚠️ 未找到建议 {target_id}。可先不带 advice_id 重试（取最近一条待回访建议）。"
+        else:
+            record = self.advice_store.latest_pending(self.user_id)
+            if record is None:
+                return "⚠️ 当前没有待回访的历史建议，无法记录反馈。"
+            target_id = record.advice_id
+
+        note_text = " ".join((note or "").split())
+        updated = self.advice_store.update_status(
+            self.user_id, target_id, normalized_status, feedback_text=note_text
+        )
+        if not updated:
+            return f"⚠️ 建议 {target_id} 状态更新失败。"
+
+        # 让反馈进入长期记忆 → 提纯摘要 → system 注入 → 影响后续规划。
+        self._remember_advice_feedback(record, normalized_status, note_text)
+
+        if self.trace_logger is not None:
+            try:
+                self.trace_logger.log_event(
+                    "advice_feedback",
+                    {"advice_id": target_id, "status": normalized_status},
+                )
+            except Exception:
+                pass
+
+        summary = record.summary_preview() or "（无摘要）"
+        return (
+            f"✅ 已记录反馈：{summary} → {normalized_status}"
+            + (f"（{note_text}）" if note_text else "")
+        )
+
+    def _remember_advice_feedback(
+        self, record: "AdviceRecord", status: str, note: str
+    ) -> None:
+        """把反馈写入 episodic 长期记忆（方案 §3.5）。
+
+        写失败只记 trace，不影响工具返回 —— 状态机已经更新成功，记忆写入是
+        锦上添花的第二条链路。
+        """
+        status_text = {
+            "adopted": "采纳了",
+            "rejected": "没有采纳",
+            "partial": "部分采纳了",
+        }.get(status, status)
+        summary = record.summary_preview() or "此前的饮食建议"
+        content = f"用户对建议「{summary}」的执行反馈：{status_text}。"
+        if note:
+            content += f"用户原话/要点：{note}"
+        try:
+            self.service.memory_tool.memory_manager.add_memory(
+                content=content,
+                memory_type="episodic",
+                importance=0.85,
+                metadata={
+                    "category": "advice_feedback",
+                    "advice_id": record.advice_id,
+                    "status": status,
+                    "recorded_at": datetime.now().isoformat(),
+                },
+                auto_classify=False,
+            )
+        except Exception:
+            if self.trace_logger is not None:
+                try:
+                    self.trace_logger.log_event(
+                        "error",
+                        {"message": f"advice feedback memory write failed: {record.advice_id}"},
+                    )
+                except Exception:
+                    pass
+
     def _kb_search(self, input_text: str) -> str:
         """Search the nutrition knowledge base."""
         return self.service.kb_search(input_text.strip(), limit=5)
@@ -405,7 +584,52 @@ class WellnessPlanningAgent(ReActAgent):
         vision_block = self._build_vision_prompt_section()
         if vision_block:
             sections.append(vision_block)
+
+        # R11 通道 A：把待回访的历史建议注入 system（方案 §3.4）。
+        advice_block = self._build_pending_advice_section()
+        if advice_block:
+            sections.append(advice_block)
         return "\n".join(sections)
+
+    def _build_pending_advice_section(self) -> str:
+        """待回访历史建议的 system 注入块（方案 §3.4 通道 A）。
+
+        无待回访建议时返回空串——**不注入任何内容**，system 消息与二期字节级
+        一致。推送轮（``_push_mode``）也不注入：推送 prompt 自带回访段，
+        重复注入会让模型把同一条建议问两遍。
+        """
+        if self._push_mode or not self._has_group("memory"):
+            return ""
+        items = self._build_pending_advice_items()
+        if not items:
+            return ""
+        try:
+            from .prompts import pending_advice_block
+        except ImportError:  # pragma: no cover - 相对导入回落
+            return ""
+        return pending_advice_block(items)
+
+    def _build_pending_advice_items(self, limit: int = 3) -> list[dict[str, Any]]:
+        """取到期待回访的建议并渲染为注入所需的字段。
+
+        只取**已到期**的（``followup_due_at`` 已过），不是所有 pending —— 刚给完
+        建议就追问「执行得怎么样」是很怪的体验。
+        """
+        try:
+            due = self.advice_store.due_for_followup(self.user_id, limit=limit)
+        except Exception:
+            return []
+        items: list[dict[str, Any]] = []
+        for record in due:
+            items.append(
+                {
+                    "advice_id": record.advice_id,
+                    "summary": record.summary_preview(),
+                    "age_text": _humanize_age(record.created_at),
+                    "status_text": "尚未收到反馈",
+                }
+            )
+        return items
 
     def _build_vision_prompt_section(self) -> str:
         """本轮识餐结果的 system 注入块（方案 §2.6 提示层）。
@@ -794,6 +1018,8 @@ class WellnessPlanningAgent(ReActAgent):
                     # 挂起：写 SessionStore 挂起态，返回 confirmation，本回合结束。
                     return self._suspend_for_confirmation(user_input, orch)
                 result = self._finalize_composite(user_input, orch.answer or "")
+                # R11：composite 成功产出计划 → 记一条待回访建议（方案 §3.3）。
+                self._maybe_record_advice(orch, result.final_answer)
                 return self._build_chat_response(
                     result, orchestration_meta, confirmation_out
                 )
@@ -998,6 +1224,124 @@ class WellnessPlanningAgent(ReActAgent):
             )
         # 复用一期 _finalize：guardrails 硬红线复核 + 把 safe_answer 追加进 messages。
         return self._finalize(user_input, answer, [], TERMINATED_FINISHED)
+
+    # ------------------------------------------------------------------ R11 建议记录
+    def _maybe_record_advice(self, orch, final_answer: str) -> Optional[str]:
+        """composite 路由下记一条待回访建议（方案 §3.3）。
+
+        **只在 planning 子代理 success=True 时记**——simple 路由的闲聊/单点问答
+        不构成"建议"，失败的 planning 也没有可回访的内容，都会污染回访队列。
+
+        推送轮（``_push_mode``）同样不记：推送本身就是系统主动发起的，把它再记成
+        一条"待用户回访的建议"会让回访队列自我繁殖。
+
+        任何异常都只记 trace 不抛出 —— 建议记录是旁路副作用，绝不能拖垮已经
+        生成好的回答。
+        """
+        if self._push_mode:
+            return None
+        planning = self._find_subagent_brief(orch, "planning")
+        if planning is None or not planning.get("success"):
+            return None
+
+        digest = self._extract_plan_digest(orch)
+        summary = self._compose_advice_summary(digest, planning, final_answer)
+        if not summary:
+            return None
+
+        record = AdviceRecord(
+            advice_id=new_advice_id(),
+            user_id=self.user_id,
+            session_id=self.session_id or "",
+            summary=summary,
+            plan_digest=digest,
+        )
+        try:
+            advice_id = self.advice_store.append(record)
+        except Exception:
+            if self.trace_logger is not None:
+                try:
+                    self.trace_logger.log_event(
+                        "error", {"message": "advice record append failed"}
+                    )
+                except Exception:
+                    pass
+            return None
+
+        if self.trace_logger is not None:
+            try:
+                self.trace_logger.log_event(
+                    "advice_recorded",
+                    {"advice_id": advice_id, "summary_preview": record.summary_preview()},
+                )
+            except Exception:
+                pass
+        return advice_id
+
+    @staticmethod
+    def _find_subagent_brief(orch, name: str) -> Optional[dict]:
+        """从编排结果里取某个子代理的 brief。"""
+        for brief in getattr(orch, "subagent_results", None) or []:
+            if isinstance(brief, dict) and brief.get("name") == name:
+                return brief
+        return None
+
+    def _extract_plan_digest(self, orch) -> dict[str, Any]:
+        """取 planning 子代理产出的结构化 JSON 块（方案 §3.2 ``plan_digest``）。
+
+        ``SubAgentResult.data`` 已由 ``SubAgent._extract_trailing_json`` 解析好，
+        但 ``_result_brief`` 只透传摘要字段，故这里从 orch 上按需再取一次。
+        模型没按约定产出 JSON 块时返回 ``{}`` —— 摘要侧有确定性回落。
+        """
+        raw = getattr(orch, "planning_data", None)
+        if not isinstance(raw, dict):
+            brief = self._find_subagent_brief(orch, "planning") or {}
+            raw = brief.get("data") if isinstance(brief.get("data"), dict) else {}
+        if not isinstance(raw, dict):
+            return {}
+
+        digest: dict[str, Any] = {}
+        headline = str(raw.get("headline") or "").strip()
+        if headline:
+            digest["headline"] = headline[:120]
+        days = raw.get("days")
+        if isinstance(days, (int, float)) and not isinstance(days, bool):
+            digest["days"] = int(days)
+        for key in ("meals", "constraints_used", "key_items"):
+            value = raw.get(key)
+            if isinstance(value, (list, tuple)):
+                items = [str(v).strip() for v in value if str(v).strip()]
+                if items:
+                    digest[key] = items[:8]
+        return digest
+
+    @staticmethod
+    def _compose_advice_summary(
+        digest: dict[str, Any], planning: dict, final_answer: str
+    ) -> str:
+        """建议摘要：优先用 planning 的 ``headline``，否则确定性回落。
+
+        回落顺序（方案 §3.2 的 C 方案约定）：
+        ``plan_digest.headline`` → planning 子代理摘要首段 → 最终答案首段。
+        全空则返回 ``""``（调用方据此跳过记录）。
+        """
+        headline = str(digest.get("headline") or "").strip()
+        if headline:
+            return headline
+
+        for candidate in (planning.get("summary") or "", final_answer or ""):
+            text = " ".join(str(candidate).split())
+            if not text:
+                continue
+            # 取首个句子/首段，避免把整份食谱当摘要。
+            for sep in ("。", "！", "？", "\n"):
+                if sep in text:
+                    text = text.split(sep, 1)[0]
+                    break
+            text = text.strip()
+            if text:
+                return text[:120]
+        return ""
 
     def chat_stream(
         self,
@@ -1222,6 +1566,8 @@ class WellnessPlanningAgent(ReActAgent):
             },
         )
         result = self._finalize_composite(user_input, orch.answer or "")
+        # R11：与非流式路径保持一致，composite 成功即记一条待回访建议。
+        self._maybe_record_advice(orch, result.final_answer)
         final_answer = result.final_answer
         for chunk in self._chunk_text(final_answer):
             yield StreamEvent(StreamEventType.LLM_CHUNK, {"delta": chunk})
@@ -1362,7 +1708,13 @@ class WellnessPlanningAgent(ReActAgent):
         return turns
 
     def _handle_post_turn_memory(self) -> None:
-        """Trigger batch long-term distillation after a completed dialogue turn."""
+        """Trigger batch long-term distillation after a completed dialogue turn.
+
+        R10：推送轮**不触发 distill**（方案 §4.3 会话隔离）——推送内容是机器
+        自说自话，把它提纯成"用户偏好"会污染长期记忆。
+        """
+        if self._push_mode:
+            return
         completed_turns = self._get_completed_turns()
         if self.memory_tool.current_session_id is None:
             self.memory_tool.current_session_id = (

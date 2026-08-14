@@ -1,5 +1,6 @@
 """FastAPI application for the wellness agent web UI."""
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -21,22 +22,54 @@ from .deps import (
     get_agent,
     get_frontend_dist,
     get_media_store,
+    get_push_plan,
+    list_advice,
     list_knowledgebase_files,
+    list_push_inbox,
     list_sessions,
     list_traces,
+    mark_push_read,
     new_session,
     read_knowledgebase_file,
     read_metrics,
     read_trace,
+    run_push_now,
+    start_push_scheduler,
+    stop_push_scheduler,
+    submit_advice_feedback,
+    update_push_plan,
     vision_enabled,
 )
-from .schemas import ChatRequest, NewSessionRequest, ProfileRequest, UserScopedRequest
+from .schemas import (
+    AdviceFeedbackRequest,
+    ChatRequest,
+    NewSessionRequest,
+    ProfileRequest,
+    PushPlanRequest,
+    PushReadRequest,
+    UserScopedRequest,
+)
 
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 
-app = FastAPI(title="WellnessAgent API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """R10 调度器生命周期（方案 §4.1）。
+
+    用 ``lifespan`` 而非方案里写的 ``@app.on_event`` —— 后者在 FastAPI 0.9x+
+    已废弃。行为等价：启动时按 ``WELLNESS_PUSH_ENABLED`` 拉起 tick 线程
+    （默认 ``false`` → 不启动任何线程），关闭时停掉。
+    """
+    start_push_scheduler()
+    try:
+        yield
+    finally:
+        stop_push_scheduler()
+
+
+app = FastAPI(title="WellnessAgent API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -221,6 +254,79 @@ def get_media(file_id: str, user_id: str = "web_user") -> Response:
         content=data,
         media_type=ref.mime,
         headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
+# ---------------------------------------------------------------- advice (R11)
+@app.get("/api/advice/list")
+def advice_list(user_id: str = "web_user", status: str = "", limit: int = 50) -> dict:
+    """List recorded advice with follow-up state (R11, 方案 §3.6)."""
+    return list_advice(user_id, status=status, limit=limit)
+
+
+@app.post("/api/advice/feedback")
+def advice_feedback(payload: AdviceFeedbackRequest) -> dict:
+    """Record execution feedback for a past advice (R11).
+
+    与模型调用 ``advice_feedback`` 工具走**同一条路径**，因此状态机更新与
+    episodic 记忆写入两个副作用完全一致。
+    """
+    result = submit_advice_feedback(
+        payload.user_id,
+        advice_id=payload.advice_id,
+        status=payload.status,
+        note=payload.note,
+    )
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+# ---------------------------------------------------------------- push (R10)
+@app.get("/api/push/plan")
+def push_plan_get(user_id: str = "web_user") -> dict:
+    """Read the user's push plan (R10, 方案 §4.2)."""
+    return get_push_plan(user_id)
+
+
+@app.post("/api/push/plan")
+def push_plan_set(payload: PushPlanRequest) -> dict:
+    """Update push plan: on/off, time, kinds (R10)."""
+    return update_push_plan(
+        payload.user_id,
+        enabled=payload.enabled,
+        daily_at=payload.daily_at,
+        timezone=payload.timezone,
+        kinds=payload.kinds,
+    )
+
+
+@app.post("/api/push/run-now")
+def push_run_now(payload: UserScopedRequest) -> dict:
+    """Generate and deliver one push immediately (R10, demo 必需).
+
+    刻意**不检查**总开关与 ``plan.enabled``：否则演示时得先开全局调度再等到点。
+    """
+    return run_push_now(payload.user_id)
+
+
+@app.get("/api/push/inbox")
+def push_inbox(
+    user_id: str = "web_user", unread_only: bool = False, limit: int = 50
+) -> dict:
+    """Read the push inbox with unread count (R10, 方案 §4.4)."""
+    return list_push_inbox(user_id, unread_only=unread_only, limit=limit)
+
+
+@app.post("/api/push/read")
+def push_read(payload: PushReadRequest) -> dict:
+    """Mark one push (or all) as read (R10)."""
+    if not payload.push_id and not payload.all_read:
+        raise HTTPException(
+            status_code=400, detail="push_id is required unless all_read is true"
+        )
+    return mark_push_read(
+        payload.user_id, push_id=payload.push_id, all_read=payload.all_read
     )
 
 

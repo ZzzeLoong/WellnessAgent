@@ -16,8 +16,8 @@
 | **R9** 全链路多模态内核 | `Message.content` 联合类型 + `MediaStore` + `TokenCounter`/`HistoryManager` 多模态适配 | ✅ （批次 2 已交付） |
 | **R9** Qwen-VL 接入 | `core/llm.py` `supports_vision()` + 视觉模型双实例切换 | ✅ （批次 2 已交付） |
 | **R9** 拍照识餐 | `wellnessagent/vision.py`（结构化识餐）+ 安全联动 + 感知记忆写入 + 上传接口 + 前端 UI | ✅ （批次 2 已交付） |
-| **R11** 执行反馈闭环 | `wellnessagent/advice_store.py` + `advice_feedback` 工具 + 回访注入 | ⬜ |
-| **R10** 主动推送 | `wellnessagent/scheduler.py` + push inbox + `/api/push/*` | ⬜ |
+| **R11** 执行反馈闭环 | `wellnessagent/advice_store.py` + `advice_feedback` 工具 + 回访注入 | ✅ （批次 3 已交付） |
+| **R10** 主动推送 | `wellnessagent/scheduler.py` + push inbox + `/api/push/*` | ✅ （批次 3 已交付） |
 | **R12** 记忆与事件时间线 | `wellnessagent/timeline.py`（多源聚合）+ `/api/memory/timeline` + `MemoryTimelinePage.tsx` | ⬜ |
 | **R13** MCP Server 暴露 | `wellnessagent/mcp_server.py`（6 个只读能力）+ 接入示例 | ⬜ |
 | **R14** Benchmark A/B | `--variant` env overlay + `evaluators/orchestration.py` + `evaluators/safety.py` + `benchmark/ab.py` | ⬜ |
@@ -209,6 +209,35 @@ examples/
 | P3.0-8 | `ChatPage.tsx` 中 `handleConfirmDecision` 调 `handleSend` 时传了 `ConfirmationDecision` 给 `attachments` 参数（类型不匹配） | 确认场景不涉及图片，传 `undefined` |
 | P3.0-9 | `WellnessProfile` 实际字段为 `diet_pattern` / `goal`，非方案中假定的 `dietary_preferences` / `health_goal` | 按实际 schema 使用 |
 | P3.0-10 | VLM 凭据回落需同时支持 DashScope API 和本地 Ollama 两种模式 | 回落顺序 `WELLNESS_VLM_*` → `DASHSCOPE_API_KEY` → `LLM_*`；本地 Ollama 通过 `LLM_BASE_URL` + `LLM_API_KEY` 自动生效 |
+
+### 1.6 批次 3 新增单测清单
+
+| 文件 | 项数 | 覆盖 |
+|------|------|------|
+| `tests/test_advice_store.py` | 56 | append-only 更新语义 / 状态机 / `due_for_followup` 三条件 / 坏行容错 / 路径穿越防护 |
+| `tests/test_push_inbox.py` | 65 | 计划开关与时刻归一化 / `is_due` 同日去重 / inbox 已读 append-only / 未读计数 |
+| `tests/test_push_scheduler.py` | 56 | 注入时钟的 `run_due` / **会话隔离 9 项** / 失败隔离 / 线程生命周期 |
+| `tests/test_agent_advice_loop.py` | 67 | 记录时机（只 composite+planning 成功）/ `plan_digest` 抽取与回落 / 回访注入 / `advice_feedback` 双副作用 |
+| **合计** | **+244** | 687（批次 2 基线，全部保绿）→ **931** |
+
+> 全量回归已在 `PYTHONHASHSEED=0/1/42/12345/99999` 下各跑一遍，均 931 passed。
+> `python -m benchmark.cli --help` 正常。全链路冒烟（建议记录 → 到期回访 →
+> 推送投递 → 用户反馈 → 队列清空）已验证通过。
+
+### 1.7 批次 3 落地时新发现并修复的问题
+
+| 编号 | 问题 | 现象 | 修复 |
+|------|------|------|------|
+| **P3.0-11** | 三期新增实例属性会打挂既有单测 | 一/二期大量单测用 `WellnessPlanningAgent.__new__()` + 手工装配桩属性绕开重依赖，**不跑 `__init__`**。`_push_mode` / `advice_store` 只在 `__init__` 赋值 → 9 个既有测试集体 `AttributeError` | 改**类级默认值** + `advice_store` 懒构造 property。方案 §0.2 硬约束是「三期只新增测试，不改既有断言」，故不能改测试去迁就实现 |
+| **P3.0-12** | `advice_feedback` 未进只读黑名单 | 该工具会更新状态机**并写 episodic 长期记忆**，但 `ReadOnlyFilter.DENIED` 没收录 → profile/safety 这两个声明为只读的子代理理论上可调用它 | 加入 `DENIED`，与 `memory_remember` 同级。由 `test_readonly_subagents_cannot_call_it` 反向锁定 |
+| **P3.0-13** | 推送 `kinds=[]` 被静默放大为全订阅 | `kinds or [KIND_DAILY, KIND_FOLLOWUP]` 把**显式空列表**（=什么都不推）与 `None`（=未指定）混为一谈 | 改为只有 `None` 才回落默认值 |
+
+**与方案的两处有意偏离**（均已在代码注释中说明理由）：
+
+| 方案原文 | 实际实现 | 原因 |
+|---------|---------|------|
+| §4.1 `@app.on_event("startup")` | `lifespan` 异步上下文管理器 | `on_event` 在 FastAPI 0.9x+ 已废弃（本机 0.139.2），行为等价 |
+| §4.3「复用 orchestrator composite **或**轻量单次 LLM」 | 固定走轻量单次 LLM | composite 会经 `_maybe_request_confirmation`；**推送轮没有用户在场**，一旦挂起就永远无人确认，该条推送会永久卡死 |
 
 ---
 
@@ -489,6 +518,12 @@ vision_error    {message}
 现有 `service.py` 里的 `recent_feedback` 只是 distill 阶段的**文本分类**（把用户话语归入"近期反馈"类别），既没有"哪条建议"的指向，也没有状态字段，**不是执行跟踪**。R11 需要真正的建议记录。
 
 **选型**：独立 `logs/advice/<user_id>.jsonl`，而非复用 episodic memory。理由：episodic 的查询接口是 `search_memories(limit=1000)` 全捞再过滤，按 `status`/`due_at` 查询非常别扭；建议记录是**强结构、需按状态检索**的业务数据，独立存储更干净，也便于 R12 时间线与 R10 推送直接消费。
+
+> **落地实现说明（批次 3）**：`plan_digest` 采用「planning 子代理产出 JSON 块」方案
+> —— `SUBAGENT_PLANNING_PROMPT` 末尾新增 `{headline, days, meals, constraints_used,
+> key_items}` 机器可读块（与 profile/safety 同款范式，由既有
+> `SubAgent._extract_trailing_json` 解析）。模型未按约定产出时，摘要按
+> `headline → planning 摘要首句 → 最终答案首句` 确定性回落，不额外调用 LLM。
 
 ### 3.2 新增 `wellnessagent/advice_store.py`
 
@@ -858,10 +893,10 @@ python -m benchmark.cli --baseline full_agent \
 | 9 | `llm.supports_vision()` + `_get_vision_llm()` + 本轮切换 | 6 | 探测两路径 + 不含图时走原 llm（等价性断言） | ✅ |
 | 10 | `wellnessagent/vision.py` 识餐 + 安全联动 + 感知记忆 | 7,9 | mock VLM 的识别/风险命中/记忆写入单测 | ✅ |
 | 11 | 前端图片上传 + 气泡 + `VisionCard` | 7,10 | `tsc && vite build` 通过 | ✅ |
-| **批次 3：R11 → R10（有依赖顺序）** |
-| 12 | `advice_store.py` + composite 记录 + `advice_feedback` 工具 | 批次 1 | 状态机 + 到期查询单测 | ⬜ |
-| 13 | 回访 system 注入 + `/api/advice/*` | 12 | 注入内容单测 | ⬜ |
-| 14 | `scheduler.py` + `push.py` + inbox + `/api/push/*` | 12,13 | 注入时钟的 `run_due` 单测 + 会话隔离断言 | ⬜ |
+| **批次 3：R11 → R10（有依赖顺序）—— ✅ 已交付：687 → 931 passed** |
+| 12 | `advice_store.py` + composite 记录 + `advice_feedback` 工具 | 批次 1 | 状态机 + 到期查询单测 | ✅ |
+| 13 | 回访 system 注入 + `/api/advice/*` | 12 | 注入内容单测 + **无建议时不注入**的等价性断言 | ✅ |
+| 14 | `scheduler.py` + `push.py` + inbox + `/api/push/*` | 12,13 | 注入时钟的 `run_due` 单测 + 会话隔离断言 | ✅ |
 | **批次 4：R12 / R13 / R14（数据齐了才好看）** |
 | 15 | `timeline.py` 多源聚合 + `/api/memory/timeline` | 10,12,14 | 各源归一化 + 排序/筛选单测 | ⬜ |
 | 16 | `MemoryTimelinePage.tsx` + `PushInbox.tsx` + tab | 14,15 | `tsc && vite build` 通过 | ⬜ |
